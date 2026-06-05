@@ -978,7 +978,7 @@ fn prefilter(t: &str, lang: Lang) -> bool {
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
     ) {
         if let Some(idx) = t.find('(') {
-            let name = trailing_ident(t[..idx].trim_end());
+            let name = trailing_ident(callable_head(&t[..idx]));
             if !name.is_empty() && !is_control(name) {
                 return true;
             }
@@ -1009,7 +1009,7 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
     // declaration.
     if matches!(lang, Lang::C | Lang::Cpp) && class_keywords(lang).contains(&kw) {
         if h.contains('(') && looks_like_function(h, lang, term) {
-            return Some((Kind::Function, h.to_string()));
+            return Some((Kind::Function, fn_text(h)));
         }
         if kw == "typedef" || term == Term::Brace {
             return Some((Kind::Class, class_text(h, lang)));
@@ -1102,7 +1102,7 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
         }
         Lang::Kotlin => {
             if kw == "fun" {
-                return Some((Kind::Function, h.to_string()));
+                return Some((Kind::Function, fn_text(h)));
             }
             if matches!(kw, "val" | "var") {
                 let (n2, _) = take_ident(rest.trim_start());
@@ -1190,7 +1190,7 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
     ) && looks_like_function(h, lang, term)
     {
-        return Some((Kind::Function, h.to_string()));
+        return Some((Kind::Function, fn_text(h)));
     }
 
     None
@@ -1273,11 +1273,12 @@ fn looks_like_function(h: &str, lang: Lang, term: Term) -> bool {
         None => return false,
     };
     let before = h[..idx].trim_end();
-    let name = trailing_ident(before);
+    let head = callable_head(before);
+    let name = trailing_ident(head);
     if name.is_empty() || is_control(name) {
         return false;
     }
-    let prefix = before[..before.len() - name.len()].trim();
+    let prefix = head[..head.len() - name.len()].trim();
     // Member access (`obj.method(`) is a call expression, not a declaration.
     if prefix.ends_with('.') {
         return false;
@@ -1551,20 +1552,61 @@ fn is_control(w: &str) -> bool {
 }
 
 /// Take a leading identifier from `s` (after trimming), returning it and the
-/// rest of the string.
+/// rest of the string. Unicode-aware so non-ASCII identifiers (e.g. `ÜBER`,
+/// `話す`) are kept whole rather than read as empty.
 fn take_ident(s: &str) -> (&str, &str) {
     let s = s.trim_start();
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c == b'_' || c == b'$' || c.is_ascii_alphanumeric() {
-            i += 1;
+    let mut end = 0;
+    for (idx, ch) in s.char_indices() {
+        if ch == '_' || ch == '$' || ch.is_alphanumeric() {
+            end = idx + ch.len_utf8();
         } else {
             break;
         }
     }
-    (&s[..i], &s[i..])
+    (&s[..end], &s[end..])
+}
+
+/// The portion of a pre-`(` header up to (and excluding) a trailing generic
+/// clause, so the method name in `name<T>(` can be found. If `before` does not
+/// end in a balanced `<...>`, it is returned unchanged.
+fn callable_head(before: &str) -> &str {
+    let before = before.trim_end();
+    if before.ends_with('>') {
+        if let Some(open) = angle_open_from_end(before) {
+            return before[..open].trim_end();
+        }
+    }
+    before
+}
+
+/// Given `s` ending in `>`, the byte index of the matching `<` (depth-balanced),
+/// scanning from the end. `None` if unbalanced.
+fn angle_open_from_end(s: &str) -> Option<usize> {
+    let mut depth = 0i32;
+    for (idx, ch) in s.char_indices().rev() {
+        match ch {
+            '>' => depth += 1,
+            '<' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(idx);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A function header with any expression body dropped: cut at the first
+/// top-level `=` (which also covers a `=>` arrow body, since it starts with
+/// `=`). Default parameter `=`s live inside parens and are not top-level.
+fn fn_text(h: &str) -> String {
+    match find_top_eq(h) {
+        Some(eq) => h[..eq].trim_end().to_string(),
+        None => h.trim().to_string(),
+    }
 }
 
 /// Take the trailing identifier run from `s`. Operates on chars so Unicode
@@ -2003,5 +2045,43 @@ mod tests {
         assert!(s.iter().any(|x| x.text == "const pi = …" && x.kind == Kind::Constant));
         assert!(s.iter().any(|x| x.text == "void main()" && x.kind == Kind::Function));
         assert!(s.iter().all(|x| !x.text.contains("hidden")));
+    }
+
+    // ---- regression tests for issues surfaced by the test fixtures ----
+
+    #[test]
+    fn ts_generic_method_recognized() {
+        // A type parameter between the name and `(` must not hide the method.
+        let src = "class C {\n  identity<T>(x: T): T { return x; }\n  plain(a: number): number { return a; }\n}\n";
+        let s = sigs(Lang::Ts, src);
+        assert!(
+            s.iter().any(|x| x.text == "identity<T>(x: T): T" && x.kind == Kind::Function),
+            "got: {s:?}"
+        );
+        assert!(s.iter().any(|x| x.text == "plain(a: number): number"));
+    }
+
+    #[test]
+    fn unicode_constant_names_recognized() {
+        // `take_ident` must read non-ASCII identifiers (was ASCII-only).
+        let kt = sigs(Lang::Kotlin, "const val ÜBER_LIMIT = 5\nconst val MAX = 10\n");
+        assert!(kt.iter().any(|x| x.text == "const val ÜBER_LIMIT = …" && x.kind == Kind::Constant));
+        let go = sigs(Lang::Go, "const Δ = 1\nconst 最大値 = 9\n");
+        assert!(go.iter().any(|x| x.text == "const Δ = …"));
+        assert!(go.iter().any(|x| x.text == "const 最大値 = …"));
+    }
+
+    #[test]
+    fn expression_bodies_dropped() {
+        // Kotlin `= expr`, C#/Dart `=> expr` bodies must not leak into the text.
+        let kt = sigs(Lang::Kotlin, "class A {\n  fun greet(): String = \"hi\"\n}\n");
+        assert!(kt.iter().any(|x| x.text == "fun greet(): String" && x.kind == Kind::Function));
+        let cs = sigs(Lang::CSharp, "class A {\n  double balance() => 0;\n}\n");
+        assert!(cs.iter().any(|x| x.text == "double balance()" && x.kind == Kind::Function));
+        let dart = sigs(Lang::Dart, "int add(int a, int b) => a + b;\n");
+        assert!(dart.iter().any(|x| x.text == "int add(int a, int b)" && x.kind == Kind::Function));
+        // A default parameter `=` must NOT be mistaken for an expression body.
+        let kt2 = sigs(Lang::Kotlin, "fun f(x: Int = 5) {}\n");
+        assert!(kt2.iter().any(|x| x.text == "fun f(x: Int = 5)"), "got: {kt2:?}");
     }
 }

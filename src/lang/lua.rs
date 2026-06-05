@@ -288,8 +288,11 @@ fn gather_function(lines: &[String], start: usize) -> (String, usize) {
 fn class_or_const(stripped: &str) -> Option<(Kind, String)> {
     let (lhs, rhs) = split_assign(stripped)?;
     let lhs = lhs.trim();
+    // `rhs` may be empty here when the value was a string literal that masking
+    // blanked to spaces (e.g. `NAME = "app"`). That is still a constant, so do
+    // not bail on an empty rhs — only an empty lhs is disqualifying.
     let rhs = rhs.trim_start();
-    if lhs.is_empty() || rhs.is_empty() {
+    if lhs.is_empty() {
         return None;
     }
 
@@ -502,5 +505,25 @@ mod tests {
         let src = "-- naïve café αβγ\nfunction grüße(café)\nend\nNAMÉ = 1\n";
         let s = sigs(src);
         assert_eq!(s[0].text, "function grüße(café)");
+    }
+
+    #[test]
+    fn string_valued_constants_emitted() {
+        // The string value masks to spaces; an ALL-CAPS assignment is still a
+        // constant (previously dropped because the masked rhs looked empty).
+        let src = "NAME = \"app\"\nVERSION = \"1.0\"\nMAX = 10\nlower = \"x\"\n";
+        let consts: Vec<String> = sigs(src)
+            .into_iter()
+            .filter(|x| x.kind == Kind::Constant)
+            .map(|x| x.text)
+            .collect();
+        assert_eq!(
+            consts,
+            vec![
+                "NAME = …".to_string(),
+                "VERSION = …".to_string(),
+                "MAX = …".to_string(),
+            ]
+        );
     }
 }
