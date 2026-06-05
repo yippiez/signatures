@@ -1,0 +1,8 @@
+[package]
+name = "signatures"
+version = "0.1.0"
+edition = "2021"
+description = "Print the signatures (functions, classes, constants) of source files."
+
+# Intentionally dependency-free: standard library only.
+[dependencies]
