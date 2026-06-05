@@ -9,12 +9,12 @@ namespace Edge
     partial void OnIdChanged(int newId)
   public partial class PartialWidget
     partial void OnIdChanged(int newId)
-    public override string ToString() => $"Widget({Id})"
+    public override string ToString()
   public class EmptyClass
   public struct Point
   public readonly struct Vector2
     public Vector2(float x, float y)
-    public override string ToString() => $"({X}, {Y})"
+    public override string ToString()
   public interface IPrintable
     void Print()
     string Format(string template)
@@ -26,5 +26,5 @@ namespace Edge
   public enum ErrorCode
   public record LogEntry(DateTime Timestamp, string Message, int Level)
     public static readonly LogEntry Empty = …
-    public bool IsError() => Level>= 3
-    public string Format() => $"[{Timestamp:u}] ({Level}) {Message}"
+    public bool IsError()
+    public string Format()

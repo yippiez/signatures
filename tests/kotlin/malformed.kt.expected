@@ -8,9 +8,9 @@ class WeirdlyFormatted (val x : Int)
   val spaceyProp : Int = …
 class EmptyBody
 interface AllDefaults
-  fun one(): Int = 1
-  fun two(): String = "two"
-  fun three(): Boolean = false
+  fun one(): Int
+  fun two(): String
+  fun three(): Boolean
 fun deepGeneric(input: Map<String, List<Pair<Int, Set<Double>>>>): Map<String, Int>
 fun withLambda(action: (String, Int) -> Boolean): List<String>
 fun higherOrder(f: (Int) -> (String) -> Boolean): Boolean
@@ -19,7 +19,7 @@ object Standalone
   fun method()
   val prop: String = …
 enum class Direction
-  fun opposite(): Direction = when (this)
+  fun opposite(): Direction
 class Config private constructor(val data: Map<String, String>)
   companion object 
     val EMPTY: Config = …

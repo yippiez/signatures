@@ -6,7 +6,7 @@ class Outer(val name: String)
     fun innerMethod(): Double
     object InnerSingleton
       const val MAGIC = …
-      fun create(): InnerSingleton = InnerSingleton
+      fun create(): InnerSingleton
   class StaticNested
     val count: Int = …
     fun increment(): Int

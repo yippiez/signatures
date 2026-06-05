@@ -16,12 +16,12 @@ namespace open_ns
   constexpr int factorial(int n)
   static const int LIMIT = …
   class Peculiar
-    ~Peculiar() = default
+    ~Peculiar()
     explicit operator bool() const
     explicit operator int() const
     typedef int value_t
-    virtual void update(float dt) = 0
-    virtual int priority() const = 0
+    virtual void update(float dt)
+    virtual int priority() const
     void reset(int mode = 0)
   namespace unclosed
     struct Dangling

@@ -1,0 +1,5 @@
+class Container<T>
+  identity<U>(x: U): U
+  map<U>(fn: (x: T) => U): U[]
+  plain(a: number): number
+function firstOf<T>(items: T[]): T

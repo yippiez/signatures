@@ -1,3 +1,5 @@
+const val ПРИВЕТСТВИЕ = …
+const val 最大値 = …
 const val GREETING_AR = …
 data class Точка(val х: Double, val у: Double)
 data class 座標(val x: Double, val y: Double)
@@ -5,11 +7,13 @@ interface Вычисляемый
   fun вычислить(): Double
   fun описание(): String
 class Геометрия : Вычисляемый
+  private val π = …
   fun площадьКруга(радиус: Double): Double
   fun длинаОкружности(радиус: Double): Double
   override fun вычислить(): Double
   override fun описание(): String
 object 数学ユーティリティ
+  const val 円周率 = …
   fun 面積を計算(半径: Double): Double
   fun 距離を計算(点1: Точка, 点2: Точка): Double
 fun сложить(а: Int, б: Int): Int

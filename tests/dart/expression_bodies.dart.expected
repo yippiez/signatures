@@ -1,0 +1,5 @@
+class Calc
+  int add(int a, int b)
+  String greet(String name)
+  int block(int n)
+int square(int x)

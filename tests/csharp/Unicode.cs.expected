@@ -3,13 +3,13 @@ namespace Büro.Verwaltung
     public const string Standardwert = …
     public static readonly int MaximalAnzahl = …
     public Konfiguration(string name, int anzahl)
-    public bool IstGültig() => !string.IsNullOrEmpty(Name) && Anzahl> 0
-    public override string ToString() => $"{Name} (Anzahl={Anzahl})"
+    public bool IstGültig()
+    public override string ToString()
   public class Sammlung<T>
     private readonly List<T> _elemente = …
-    public void Hinzufügen(T element) => _elemente.Add(element)
-    public bool Enthält(T element) => _elemente.Contains(element)
-    public T DiesesElement(int index) => _elemente[index]
+    public void Hinzufügen(T element)
+    public bool Enthält(T element)
+    public T DiesesElement(int index)
   public interface IVerarbeitbar
     void Verarbeiten()
     string Beschreiben()
@@ -20,9 +20,9 @@ namespace Büro.Verwaltung
 namespace 日本語.名前空間
   public class 辞書クラス<キー, 値>
     private readonly Dictionary<キー, 値> _データ = …
-    public void 追加(キー key, 値 value) => _データ[key] = value
-    public bool 含む(キー key) => _データ.ContainsKey(key)
-    public 値 取得(キー key) => _データ[key]
+    public void 追加(キー key, 値 value)
+    public bool 含む(キー key)
+    public 値 取得(キー key)
   public interface I検索可能<T>
     T 検索(string クエリ)
     bool 存在する(string クエリ)

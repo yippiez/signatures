@@ -1,31 +1,34 @@
 enum LogLevel
-  bool get isAtLeast(LogLevel other) => index>= other.index
+  bool get isAtLeast(LogLevel other)
 enum Direction
   final int degrees = …
   const Direction(this.degrees) = …
 abstract class Shape
   const Shape() = …
   bool contains(Point<double> p)
-  String toString() => '${runtimeType}(area=${area.toStringAsFixed(2)})'
+  String toString()
 mixin Serializable
   Map<String, dynamic> toJson()
-  String toJsonString() => '{...}'
+  String toJsonString()
 mixin Cacheable
   bool isCacheStale(DateTime cachedAt)
 abstract class Result<T>
   const Result() = …
+  R fold<R>({required R Function(T) onOk, required R Function(Object) onError})
 class Ok<T> extends Result<T>
   final T value = …
   const Ok(this.value) = …
+  R fold<R>({required R Function(T) onOk, required R Function(Object) onError})
 class Err<T> extends Result<T>
   final Object error = …
   const Err(this.error) = …
+  R fold<R>({required R Function(T) onOk, required R Function(Object) onError})
 class Circle extends Shape with Serializable, Cacheable
   final double radius = …
   static const double pi = …
   const Circle(this.radius) = …
   bool contains(Point<double> p)
-  Map<String, dynamic> toJson() =>
+  Map<String, dynamic> toJson()
 abstract mixin class Disposable
   void dispose()
   void assertNotDisposed()

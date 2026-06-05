@@ -11,5 +11,5 @@ namespace Demo.CommentsStrings
   public enum RealEnum
   public struct RealStruct
     public RealStruct(int value)
-    public override string ToString() => Value.ToString()
+    public override string ToString()
   public static class StringHelper

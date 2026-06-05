@@ -1,6 +1,6 @@
 const val MAX = …
 class Greeter(val name: String)
-  fun greet(): String = "hi $name"
+  fun greet(): String
   suspend fun load()
 data class Point(val x: Int, val y: Int)
 interface Shape

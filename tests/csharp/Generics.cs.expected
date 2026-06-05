@@ -2,6 +2,7 @@ namespace Demo.Generics
   public readonly struct Result<T, TError>
     public Result(T value)
     public Result(TError error)
+    public TOut Match<TOut>(Func<T, TOut> onOk, Func<TError, TOut> onError)
   public interface IRepository<TEntity, TKey>
     IEnumerable<TEntity> FindAll()
     void Save(TEntity entity)
@@ -9,14 +10,16 @@ namespace Demo.Generics
   public class InMemoryRepository<TEntity, TKey> : IRepository<TEntity, TKey>
     public const int InitialCapacity = …
     public InMemoryRepository(Func<TEntity, TKey> keySelector)
-    public IEnumerable<TEntity> FindAll() => _store.Values
+    public IEnumerable<TEntity> FindAll()
     public void Save(TEntity entity)
-    public bool Delete(TKey id) => _store.Remove(id)
+    public bool Delete(TKey id)
   public sealed class Pipeline<TIn, TOut>
     private Pipeline(Func<TIn, TOut> step)
-    public static Pipeline<TIn, TIn> Start() => new(x => x)
-    public TOut Run(TIn input) => _step(input)
+    public static Pipeline<TIn, TIn> Start()
+    public TOut Run(TIn input)
   public static class GenericExtensions
+    public static void ForEach<T>(this IEnumerable<T> source, Action<T> action)
+    public static TAccum Fold<TItem, TAccum>(this IEnumerable<TItem> source, TAccum seed, Func<TAccum, TItem, TAccum> accumulator)
   public static class ComparerFactory
   public enum SortDirection
   public delegate TResult Transformer<TIn, TOut, TResult>(TIn input, TOut context)

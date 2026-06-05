@@ -1,30 +1,30 @@
 const val EMPTY_STRING = …
 const val NEGATIVE = …
 const val MAX_INT = …
-fun square(n: Int): Int = n * n
-fun cube(n: Int): Int = n * n * n
-fun identity(x: String): String = x
-fun String?.orEmpty2(): String = this ?: ""
-fun Int?.orZero(): Int = this ?: 0
+fun square(n: Int): Int
+fun cube(n: Int): Int
+fun identity(x: String): String
+fun String?.orEmpty2(): String
+fun Int?.orZero(): Int
 data class Vector(val x: Double, val y: Double)
-  operator fun plus(other: Vector): Vector = Vector(x + other.x, y + other.y)
-  operator fun minus(other: Vector): Vector = Vector(x - other.x, y - other.y)
-  operator fun times(scalar: Double): Vector = Vector(x * scalar, y * scalar)
-  operator fun unaryMinus(): Vector = Vector(-x, -y)
-  operator fun get(index: Int): Double = when (index)
-infix fun Int.until2(to: Int): IntRange = this until to
-infix fun String.appendWith(separator: String): String.(String) -> String = { other -> this + separator + other }
+  operator fun plus(other: Vector): Vector
+  operator fun minus(other: Vector): Vector
+  operator fun times(scalar: Double): Vector
+  operator fun unaryMinus(): Vector
+  operator fun get(index: Int): Double
+infix fun Int.until2(to: Int): IntRange
+infix fun String.appendWith(separator: String): String.(String) -> String
 annotation class Retry(val times: Int = 3, val delay: Long = 100L)
 value class UserId(val value: Long)
 value class Email(val address: String)
 abstract class AbstractProcessor<T, R>
   abstract fun process(input: T): R
   abstract val name: String = …
-  open fun validate(input: T): Boolean = true
+  open fun validate(input: T): Boolean
   fun run(input: T): R?
 object Factory
-  operator fun invoke(type: String): Any = when (type)
-  fun create(name: String): String = name
+  operator fun invoke(type: String): Any
+  fun create(name: String): String
 tailrec fun factorial(n: Long, acc: Long = 1L): Long
 fun <T> listOfNonNull(vararg items: T?): List<T>
 inline fun <T> measure(block: () -> T): Pair<T, Long>

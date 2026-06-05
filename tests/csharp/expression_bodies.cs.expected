@@ -1,0 +1,5 @@
+class Calc
+  public int Add(int a, int b)
+  public double Half(double x)
+  public int Block(int n)
+  public T Echo<T>(T value)
