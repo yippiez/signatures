@@ -18,7 +18,10 @@ if (typeof A === 'string') {
   if (t.startsWith('{') || t.startsWith('[')) { try { A = JSON.parse(t) } catch (_) {} }
 }
 const cfg = (A && typeof A === 'object' && !Array.isArray(A)) ? A : {}
-const FUZZERS = Number.isFinite(cfg.fuzzers) ? Math.max(1, cfg.fuzzers) : 20
+// Number of sonnet fuzzers per language. Override with {fuzzers:N}; analysis of
+// an early run showed ~8-12 catches nearly all distinct root causes, so 12 is
+// the default sweet spot (20 mostly re-found the same top bugs).
+const FUZZERS = Number.isFinite(cfg.fuzzers) ? Math.max(1, cfg.fuzzers) : 12
 
 const rawLangs = Array.isArray(A) ? A
   : Array.isArray(cfg.languages) ? cfg.languages
