@@ -1,0 +1,17 @@
+# Compiled output / build artifacts
+/target/
+
+# Backtrace / debug artifacts
+*.pdb
+
+# Cargo lock for libraries (this is a binary crate, so keep it — left commented
+# as a reminder of the convention)
+# Cargo.lock
+
+# Workflow fuzzing scratch corpus
+/tests/fuzz/
+
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
