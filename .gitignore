@@ -8,9 +8,6 @@
 # as a reminder of the convention)
 # Cargo.lock
 
-# Workflow fuzzing scratch corpus
-/tests/fuzz/
-
 # Editor / OS noise
 *.swp
 *~
