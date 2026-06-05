@@ -1,0 +1,6 @@
+const Pi = …
+const MaxUsers = …
+type Point struct
+type Shape interface
+func (p Point) Distance(o Point) float64
+func Add(a, b int) int

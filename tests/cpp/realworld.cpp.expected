@@ -1,0 +1,48 @@
+#define HTTP_VERSION …
+#define MAX_HEADER_SIZE …
+namespace http
+  enum class Method
+  enum class StatusCode
+  struct Header
+  class Request
+    explicit Request(Method m, std::string url)
+    Method method() const
+    const std::string& url() const
+    const std::string& body() const
+    std::string header(const std::string& name) const
+    void set_body(std::string b)
+    void add_header(std::string name, std::string value)
+    bool is_secure() const
+  class Response
+    explicit Response(StatusCode code)
+    StatusCode status() const
+    int status_int() const
+    const std::string& body() const
+    void set_status(StatusCode code)
+    void set_body(std::string b)
+    void set_header(std::string name, std::string value)
+    bool ok() const
+  class Router
+    void get(std::string path, Handler h)
+    void post(std::string path, Handler h)
+    void put(std::string path, Handler h)
+    void del(std::string path, Handler h)
+    Response dispatch(const Request& req) const
+    bool has_route(Method m, const std::string& path) const
+    struct Route
+  constexpr uint16_t DEFAULT_PORT = …
+  constexpr int BACKLOG = …
+  class Server
+    explicit Server(uint16_t port = DEFAULT_PORT)
+    ~Server()
+    void set_router(Router r)
+    void listen()
+    void stop()
+    uint16_t port() const
+    bool running() const
+  std::string url_encode(const std::string& s)
+  std::string url_decode(const std::string& s)
+  std::string base64_encode(const std::vector<uint8_t>& data)
+  std::vector<uint8_t> base64_decode(const std::string& s)
+  Method parse_method(const std::string& s)
+  StatusCode parse_status(int code)

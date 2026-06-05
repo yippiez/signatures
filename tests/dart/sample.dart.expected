@@ -1,0 +1,9 @@
+const int max = …
+final String name = …
+class Greeter
+  final String name = …
+  String greet() => "hi $name"
+  Future<void> load() async
+abstract class Shape
+  double area()
+int add(int a, int b) => a + b

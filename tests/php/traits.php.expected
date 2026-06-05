@@ -1,0 +1,23 @@
+trait Timestamps
+  public const DATE_FORMAT = …
+  public function getCreatedAt(): ?\DateTimeImmutable
+  public function getUpdatedAt(): ?\DateTimeImmutable
+  public function touch(): void
+  protected function initTimestamps(): void
+trait SoftDeletes
+  public function delete(): void
+  public function restore(): void
+  public function isDeleted(): bool
+  public static function withTrashed(): array
+trait Serializable
+  abstract public function toArray(): array
+  public function toJson(int $flags = 0): string
+  public static function fromArray(array $data): static
+class Model
+  public const TABLE = …
+  public function __construct(int $id, string $name)
+  public function toArray(): array
+  public function getId(): int
+interface Persistable
+  public function save(): bool
+  public function delete(): void

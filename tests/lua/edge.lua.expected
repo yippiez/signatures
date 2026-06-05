@@ -1,0 +1,12 @@
+MAX_UINT = …
+PI_APPROX = …
+function compute(alpha, beta, gamma)
+function noop()
+function log(fmt, ...)
+local Buf = {}
+function Buf:write(data)
+function Buf:flush()
+RETRY_DELAY = …
+ERROR_CODE_TIMEOUT = …
+function util.clamp(v, lo, hi)
+function broken(a, b return a end function after_broken(x) return x end

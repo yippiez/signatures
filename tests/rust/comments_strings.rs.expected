@@ -1,0 +1,13 @@
+pub const REAL_CONST: u32 = …
+pub struct Config
+  pub fn new(value: u32) -> Self
+  pub fn describe(&self) -> &'static str
+  pub fn raw_describe(&self) -> &'static str
+  pub fn hashed_raw(&self) -> &'static str
+  pub fn multi_hashed(&self) -> &'static str
+  pub fn string_with_escapes(&self) -> String
+pub trait Describable
+  fn describe(&self) -> &'static str
+  fn describe(&self) -> &'static str
+pub fn process(cfg: &Config) -> u32
+static HELP_TEXT: &str = …

@@ -1,0 +1,26 @@
+pub const ROOT_VERSION: &str = …
+  pub const MAX_WORKERS: usize = …
+  pub struct Settings
+    pub fn default() -> Self
+    pub fn with_workers(mut self, n: usize) -> Self
+    pub const DEFAULT_LEVEL: &str = …
+    pub enum Level
+      pub fn from_str(s: &str) -> Option<Level>
+      pub fn as_str(&self) -> &'static str
+    pub trait Sink
+      fn write_record(&mut self, level: &Level, message: &str)
+      fn flush(&mut self)
+    pub struct ConsoleSink
+      pub fn new(prefix: impl Into<String>) -> Self
+      fn write_record(&mut self, level: &Level, message: &str)
+      fn flush(&mut self)
+    pub const DEFAULT_PATH: &str = …
+    pub const BUFFER_SIZE: usize = …
+    pub struct DiskStore
+      pub fn open(path: impl Into<std::path::PathBuf>) -> std::io::Result<Self>
+      pub fn buf_size(&self) -> usize
+      fn flush_buffers(&mut self) -> std::io::Result<()>
+  pub struct Handle
+    pub fn spawn<F>(&self, future: F)
+    pub fn block_on<F, T>(&self, future: F) -> T
+  pub fn current() -> Handle

@@ -1,0 +1,7 @@
+public class CommentsStrings
+  public static final String GREETING = …
+  public CommentsStrings()
+  public String buildQuery(String table)
+  public String getTextBlock()
+  public int compute(int x)
+  public void realMethod()

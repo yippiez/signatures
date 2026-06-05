@@ -1,0 +1,48 @@
+export const VERSION: string = …
+export namespace Geometry
+  export const PI: number = …
+  export interface Point
+  export interface Rect
+  export class Vector2D
+    constructor(public x: number, public y: number)
+    add(other: Vector2D): Vector2D
+    scale(factor: number): Vector2D
+    magnitude(): number
+  export namespace Shapes
+    export const DEFAULT_COLOR: string = …
+    export interface Drawable
+      draw(ctx: CanvasRenderingContext2D): void
+      boundingBox(): Rect
+    export class Circle implements Drawable
+      constructor(public center: Point, public radius: number)
+      area(): number
+      draw(ctx: CanvasRenderingContext2D): void
+      boundingBox(): Rect
+    export class Rectangle implements Drawable
+      constructor(public origin: Point, public width: number, public height: number)
+      area(): number
+      perimeter(): number
+      draw(ctx: CanvasRenderingContext2D): void
+      boundingBox(): Rect
+    export namespace Transform
+      export const IDENTITY_MATRIX: number[] = …
+      export interface Transformable
+        translate(dx: number, dy: number): void
+        rotate(angle: number): void
+        scale(sx: number, sy: number): void
+      export class AffineTransform implements Transformable
+        constructor(matrix?: number[])
+        translate(dx: number, dy: number): void
+        rotate(angle: number): void
+        scale(sx: number, sy: number): void
+        toArray(): number[]
+export namespace Config
+  export const DEFAULT_LOCALE: string = …
+  export namespace Logging
+    export const LOG_LEVEL: string = …
+    export class Logger
+      constructor(name: string)
+      info(msg: string): void
+      warn(msg: string): void
+      error(msg: string, err?: Error): void
+export function createLogger(name: string): Config.Logging.Logger

@@ -1,0 +1,26 @@
+module Outer
+  OUTER_VERSION = …
+  module Middle
+    MIDDLE_CONST = …
+    class Inner
+      INNER_LIMIT = …
+      def initialize(value)
+      def compute
+      def self.build(value)
+      class << self
+        def registry
+        def register(name, obj)
+    class AnotherInner < Inner
+      EXTRA = …
+      def initialize(value, label)
+      def to_s
+    def self.create_inner(value)
+    def self.version
+  class TopLevel
+    TOP_CONST = …
+    def initialize
+    def add(item)
+    def all
+  def self.configure
+module Standalone
+  def self.utility(x, y)

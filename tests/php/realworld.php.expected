@@ -1,0 +1,20 @@
+const API_VERSION = …
+class UserController extends BaseController
+  public const CACHE_TTL = …
+  private const SECRET_KEY = …
+  public function __construct(AuthService $authService)
+  public function index(Request $request): JsonResponse
+  public function show(int $id): JsonResponse
+  public function store(Request $request): JsonResponse
+  public function update(Request $request, int $id): JsonResponse
+  public function destroy(int $id): JsonResponse
+  protected static function resolveMiddleware(): array
+  private function authorize(string $ability): void
+interface ResourceController
+  public function index(Request $request): JsonResponse
+  public function show(int $id): JsonResponse
+  public function store(Request $request): JsonResponse
+  public function update(Request $request, int $id): JsonResponse
+  public function destroy(int $id): JsonResponse
+function sanitizeInput(string $input): string
+function paginateArray(array $items, int $perPage = 15, int $page = 1): array

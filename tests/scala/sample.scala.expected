@@ -1,0 +1,7 @@
+object Constants
+  val Max = …
+class Greeter(name: String)
+  def greet(): String
+trait Shape
+  def area: Double
+case class Point(x: Int, y: Int)

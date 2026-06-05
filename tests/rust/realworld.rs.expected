@@ -1,0 +1,25 @@
+pub const MAX_REDIRECTS: u32 = …
+pub const DEFAULT_TIMEOUT: Duration = …
+static USER_AGENT: &str = …
+pub enum ClientError
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+pub struct Response
+  pub fn text(&self) -> Result<&str, ClientError>
+  pub fn is_success(&self) -> bool
+pub struct ClientBuilder
+  pub fn new() -> Self
+  pub fn timeout(mut self, duration: Duration) -> Self
+  pub fn default_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self
+  pub fn build(self) -> HttpClient
+pub struct HttpClient
+  pub async fn get(&self, url: &str) -> Result<Response, ClientError>
+  pub async fn post(&self, url: &str, body: Option<Vec<u8>>) -> Result<Response, ClientError>
+  async fn send(&self, method: &str, url: &str, body: Option<Vec<u8>>) -> Result<Response, ClientError>
+pub trait RetryPolicy
+  fn max_attempts(&self) -> u32
+  fn delay(&self, attempt: u32) -> Duration
+pub struct ExponentialBackoff
+  fn max_attempts(&self) -> u32
+  fn delay(&self, attempt: u32) -> Duration
+pub fn parse_mime_type(content_type: &str) -> &str
+pub fn url_encode(value: &str) -> String

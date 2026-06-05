@@ -1,0 +1,43 @@
+trait Functor[F[_]]
+  def map[A, B](fa: F[A])(f: A => B): F[B]
+trait Monad[F[_]] extends Functor[F]
+  def pure[A](a: A): F[A]
+  def flatMap[A, B](fa: F[A])(f: A => F[B]): F[B]
+trait Ordering[A]
+  def compare(x: A, y: A): Int
+  def lt(x: A, y: A): Boolean
+class SortedList[A: Ordering]
+  private val underlying: mutable.ArrayBuffer[A] = …
+  def add(elem: A): Unit
+  def toList: List[A]
+  def min: Option[A]
+  def max: Option[A]
+trait Codec[A]
+  def encode(a: A): String
+  def decode(s: String): Either[String, A]
+object Codec
+  def apply[A](using c: Codec[A]): Codec[A]
+    def encode(a: Int): String
+    def decode(s: String): Either[String, Int]
+    def encode(a: Boolean): String
+    def decode(s: String): Either[String, Boolean]
+class Pair[+A, +B](val first: A, val second: B)
+  def swap: Pair[B, A]
+  def mapFirst[C](f: A => C): Pair[C, B]
+  def mapSecond[C](f: B => C): Pair[A, C]
+trait Bounded[A]
+  def minValue: A
+  def maxValue: A
+object Bounded
+    def minValue: Int
+    def maxValue: Int
+    def minValue: Double
+    def maxValue: Double
+  def clamp[A: Bounded: Ordering](value: A): A
+def identity[A](a: A): A
+def const[A, B](a: A)(b: B): A
+def compose[A, B, C](f: B => C)(g: A => B): A
+class Container[A <: AnyRef](private var value: A)
+  def get: A
+  def set(newValue: A): Unit
+  def transform[B <: AnyRef](f: A => B): Container[B]

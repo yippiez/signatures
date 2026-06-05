@@ -1,0 +1,10 @@
+local M = {}
+REQUEST_TIMEOUT = …
+Config = {}
+function Config.defaults()
+function Config.merge(base, overrides)
+M.serialize = function(data)
+M.deserialize = function(text)
+local function validate_key(key)
+function M.set(key, value)
+function M.get(key)

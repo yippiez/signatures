@@ -1,0 +1,8 @@
+namespace App
+public class Account
+  public const double Rate = …
+  public Account(string id)
+  public double Balance()
+public interface IGreeter
+  string Greet()
+public enum Status

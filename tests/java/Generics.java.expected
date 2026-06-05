@@ -1,0 +1,23 @@
+public class Generics
+  public static final int DEFAULT_CAPACITY = …
+  public static <T> Optional<T> findFirst(List<T> items, java.util.function.Predicate<T> pred)
+  public static <K, V> Map<V, K> invertMap(Map<K, V> original)
+  public static <T extends Comparable<T>> T max(T a, T b)
+  public static <A, B, C> Function<A, C> compose(Function<A, B> f, Function<B, C> g)
+class Pair<A, B>
+  public static final String TYPE_NAME = …
+  public Pair(A first, B second)
+  public A getFirst()
+  public B getSecond()
+  public <C> Pair<C, B> mapFirst(Function<A, C> f)
+  public Pair<B, A> swap()
+  public String toString()
+interface Repository<T, ID>
+  Optional<T> findById(ID id)
+  List<T> findAll()
+  T save(T entity)
+  void deleteById(ID id)
+record Result<T>(T value, String error)
+  public boolean isSuccess()
+  public static <T> Result<T> ok(T value)
+  public static <T> Result<T> fail(String error)

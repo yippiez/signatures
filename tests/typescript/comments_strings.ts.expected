@@ -1,0 +1,13 @@
+export const REAL_CONSTANT: number = …
+export interface RealInterface
+  realMethod(x: number): string
+export class RealClass
+  constructor(label: string)
+  describe(): string
+  getTemplate(): string
+  getSingleQuoted(): string
+  getDoubleQuoted(): string
+export function liveFunction(a: number, b: number): number
+export type RealType = string | number
+export enum RealEnum
+export const ANOTHER_REAL: string = …

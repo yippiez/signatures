@@ -1,0 +1,34 @@
+const val ROOT_VERSION = …
+class Outer(val name: String)
+  val outerProp: Int = …
+  fun outerMethod(): String
+  inner class Inner(val value: Double)
+    fun innerMethod(): Double
+    object InnerSingleton
+      const val MAGIC = …
+      fun create(): InnerSingleton = InnerSingleton
+  class StaticNested
+    val count: Int = …
+    fun increment(): Int
+    class DeepNested
+      fun deepMethod()
+      interface DeepInterface
+        fun deepAbstract(): Boolean
+  companion object 
+    const val TAG = …
+    var instanceCount: Int = …
+    fun newInstance(name: String): Outer
+  interface Callback
+    fun onSuccess(result: String)
+    fun onError(error: Throwable)
+    fun onComplete()
+  enum class State
+  sealed class Event
+    data class Success(val data: String) : Event()
+    data class Failure(val error: Throwable) : Event()
+    object Loading : Event()
+object TopLevelSingleton
+  val value: String = …
+  fun getValue(): String
+  object Nested
+    fun nestedFun()

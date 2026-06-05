@@ -1,0 +1,11 @@
+CACHE_SIZE = …
+function make_counter(start)
+  local function increment(step)
+  local function reset()
+  local function get()
+function make_pipeline(transforms)
+  local function apply(value)
+    local function run(index, v)
+local function memoize(fn)
+  local function lookup(key)
+  local function store(key, value)

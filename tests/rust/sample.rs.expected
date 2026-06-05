@@ -1,0 +1,9 @@
+const MAX_RETRIES: u32 = …
+static GREETING: &str = …
+pub struct Point
+  pub fn new(x: i32, y: i32) -> Self
+  async fn distance(&self, other: &Point) -> f64
+pub trait Shape
+  fn area(&self) -> f64
+pub enum Color
+fn main()

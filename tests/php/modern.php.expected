@@ -1,0 +1,21 @@
+enum Status: string
+  public function label(): string
+  public function isActive(): bool
+  public static function fromLabel(string $label): self
+enum Priority: int
+  public function isHigherThan(self $other): bool
+enum Suit
+  public function color(): string
+interface HasStatus
+  public function getStatus(): Status
+  public function setStatus(Status $status): void
+readonly class Point
+  public function __construct(public readonly float $x, public readonly float $y, public readonly float $z = 0.0)
+  public function distanceTo(self $other): float
+  public function translate(float $dx, float $dy, float $dz = 0.0): self
+class Pipeline
+  public function pipe(callable $stage): static
+  public function process(mixed $payload): mixed
+  public static function make(): static
+const DEFAULT_TIMEOUT = …
+function retry(callable $fn, int $times = 3, int $sleep = 0): mixed

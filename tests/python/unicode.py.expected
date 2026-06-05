@@ -1,0 +1,25 @@
+GREETING_EN: str = …
+GREETING_JA: str = …
+GREETING_AR: str = …
+GREETING_ZH: str = …
+PI_APPROX: float = …
+def greet(name: str) -> str:
+def berechne_summe(zahlen: List[float]) -> float:
+def вычислить_среднее(числа: List[float]) -> float:
+def حساب_مجموع(أرقام: List[float]) -> float:
+def 合計を計算する(数値リスト: List[float]) -> float:
+class Ünterklasse:
+  KLASSE_NAME: str = …
+  def __init__(self, wert: Any) -> None:
+  def hole_wert(self) -> Any:
+  def ist_leer(self) -> bool:
+class МатематическийОбъект:
+  def __init__(self, значение: float) -> None:
+  def абсолютное_значение(self) -> float:
+  def является_положительным(self) -> bool:
+class 数学クラス:
+  def __init__(self, 値: float) -> None:
+  def 平方根を求める(self) -> float:
+  def 切り捨て(self) -> int:
+def mixed_αβγ_function(α: float, β: float, γ: float = 0.0) -> float:
+def normalize_ñ(text: str) -> str:

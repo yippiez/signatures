@@ -1,0 +1,32 @@
+namespace Outer
+  namespace Inner
+    namespace Deep
+      public class Root
+        public const int RootConst = …
+        public int RootMethod(string s)
+        public class ChildA
+          private static readonly string Label = …
+          public string GetLabel() => Label
+          public struct GrandchildStruct
+            public GrandchildStruct(int x, int y)
+            public override string ToString() => $"({X},{Y})"
+          public enum GrandchildEnum
+        public interface IChildB
+          void DoWork()
+          int ComputeValue(double input)
+        protected class ChildC : IChildB
+          public void DoWork()
+          public int ComputeValue(double input) => (int)Math.Round(input)
+          private sealed class GreatGrandchild
+            public const string Tag = …
+            public void Run()
+  namespace Sibling
+    public static class SiblingHelper
+      public static int Add(int a, int b) => a + b
+      public static int Multiply(int a, int b) => a * b
+    public abstract class SiblingBase
+      public abstract void Execute()
+      public virtual string Describe() => "sibling-base"
+    public class ConcreteSibling : SiblingBase
+      public override void Execute()
+      public override string Describe() => "concrete-sibling"

@@ -1,0 +1,11 @@
+class Animal(ABC):
+  LEGS = …
+  def __init__(self, name):
+  def speak(self):
+class Dog(Animal):
+  SOUND = …
+  def speak(self):
+  class Collar:
+    COLOR = …
+    def size(self):
+class Empty:

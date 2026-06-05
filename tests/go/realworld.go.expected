@@ -1,0 +1,19 @@
+const DefaultPort = …
+const MaxConnections = …
+const ReadTimeout = …
+var ErrNotFound = …
+var ErrUnauthorized = …
+type Config struct
+type Handler interface
+type Middleware interface
+type Server struct
+type Logger interface
+type RequestContext struct
+func NewServer(cfg Config, logger Logger) *Server
+func (s *Server) RegisterHandler(h Handler)
+func (s *Server) Use(mw Middleware)
+func (s *Server) Start(ctx context.Context) error
+func (s *Server) Stop(ctx context.Context) error
+func (s *Server) Addr() string
+func extractRequestContext(r *http.Request) RequestContext
+func writeJSON(w http.ResponseWriter, status int, v interface{}) error

@@ -1,0 +1,9 @@
+const REAL_CONST = …
+function parseTemplate(template)
+class StringHolder
+  constructor()
+  getSingle()
+  getDouble()
+  getBacktick()
+function realFunction(a, b)
+const arrowReal = (x) => x * 2

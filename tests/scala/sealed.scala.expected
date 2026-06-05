@@ -1,0 +1,33 @@
+sealed trait Expr
+  def eval: Double
+  def stringify: String
+case class Num(value: Double) extends Expr
+  def eval: Double
+  def stringify: String
+case class Add(left: Expr, right: Expr) extends Expr
+  def eval: Double
+  def stringify: String
+case class Mul(left: Expr, right: Expr) extends Expr
+  def eval: Double
+  def stringify: String
+case class Neg(expr: Expr) extends Expr
+  def eval: Double
+  def stringify: String
+object Expr
+  val Zero: Expr = …
+  val One: Expr = …
+  def simplify(e: Expr): Expr
+  def toHex: String
+  def area: Double
+sealed abstract class Result[+A]
+  def isOk: Boolean
+  def getOrElse[B>: A](default: B): B
+final case class Ok[+A](value: A) extends Result[A]
+  def isOk: Boolean
+  def getOrElse[B>: A](default: B): B
+final case class Err(message: String) extends Result[Nothing]
+  def isOk: Boolean
+  def getOrElse[B](default: B): B
+object Result
+  def fromOption[A](opt: Option[A], msg: String): Result[A]
+  def sequence[A](results: List[Result[A]]): Result[List[A]]

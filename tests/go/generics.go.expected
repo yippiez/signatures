@@ -1,0 +1,26 @@
+type Ordered interface
+type Pair[A, B any] struct
+func NewPair[A, B any](first A, second B) Pair[A, B]
+func (p Pair[A, B]) Swap() Pair[B, A]
+type Stack[T any] struct
+func NewStack[T any]() *Stack[T]
+func (s *Stack[T]) Push(item T)
+func (s *Stack[T]) Pop() (T, bool)
+func (s *Stack[T]) Peek() (T, bool)
+func (s *Stack[T]) Len() int
+func Map[T, U any](slice []T, f func(T) U) []U
+func Filter[T any](slice []T, pred func(T) bool) []T
+func Reduce[T, U any](slice []T, init U, f func(U, T) U) U
+func Min[T cmp.Ordered](a, b T) T
+func Max[T cmp.Ordered](a, b T) T
+type Set[T comparable] struct
+func NewSet[T comparable]() *Set[T]
+func (s *Set[T]) Add(v T)
+func (s *Set[T]) Contains(v T) bool
+func (s *Set[T]) Remove(v T)
+func (s *Set[T]) Len() int
+type Result[T any] struct
+func Ok[T any](v T) Result[T]
+func Err[T any](err error) Result[T]
+func (r Result[T]) Unwrap() T
+func (r Result[T]) IsOk() bool

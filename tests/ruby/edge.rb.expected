@@ -1,0 +1,28 @@
+ZERO = …
+MAX_RETRIES = …
+EMPTY_ARY = …
+class MathOps
+  def +(other)
+  def -(other)
+  def *(other)
+  def ==(other)
+  def <=>(other)
+  def [](index)
+  def initialize(val)
+  def val
+class EndlessMethods
+  def double(x)
+  def square(x)
+  def negate(x)
+  def identity(x)
+  def zero?(x)
+  def triple(x)
+class MultilineSigs
+  def long_method(first_param, second_param, third_param, fourth_param = nil, **opts)
+  def configure(host:, port: 80, ssl: false, timeout: 30)
+  def self.factory(type, options = {})
+def noop
+def always_true
+def answer
+def forward(*args, &blk)
+def options_only(**opts)

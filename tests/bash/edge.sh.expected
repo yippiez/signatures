@@ -1,0 +1,17 @@
+EMPTY_VAL = …
+QUOTED_SPACES = …
+UPPER_NO_READONLY = …
+ANOTHER_UPPER = …
+function spaced_name()
+no_space_brace()
+function one_liner()
+func123()
+function _private_func()
+__double_under()
+function UPPER_FUNC()
+A_CONST = …
+B_CONST = …
+C_CONST = …
+normal_func()
+function compact()
+LAST_CONST = …

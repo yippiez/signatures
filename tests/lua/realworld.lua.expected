@@ -1,0 +1,11 @@
+local M = {}
+DEFAULT_TIMEOUT = …
+MAX_RETRIES = …
+local Router = {}
+function Router.new(prefix)
+function Router:get(path, handler)
+function Router:post(path, handler)
+function Router:dispatch(req)
+local function build_url(host, path, params)
+function M.encode_query(params)
+function M.create_router(prefix)

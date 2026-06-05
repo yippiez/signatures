@@ -1,0 +1,8 @@
+type Числа struct
+func Grüßen(name string) string
+func 挨拶(名前 string) string
+type MathOps interface
+type Résumé struct
+func (r Résumé) Afficher() string
+type Töölö struct
+func NeuesToölö(lat, lon float64) Töölö

@@ -1,0 +1,16 @@
+struct Point2D
+struct Point3D
+union FloatInt
+struct Color
+  union 
+    struct 
+struct Transform
+  struct 
+struct SceneNode
+union Register
+  struct 
+  struct 
+void transform_apply(const struct Transform *t, const struct Point3D *in, struct Point3D *out)
+struct Point3D point3d_add(struct Point3D a, struct Point3D b)
+uint32_t color_lerp(struct Color a, struct Color b, float t)
+void scene_node_attach(struct SceneNode *parent, struct SceneNode *child)

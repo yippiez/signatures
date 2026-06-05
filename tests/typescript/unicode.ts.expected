@@ -1,0 +1,31 @@
+export const 最大値: number = …
+export const минимум: number = …
+export const näherungswert: number = …
+export const π: number = …
+export const τ: number = …
+export interface Форма
+  площадь(): number
+  периметр(): number
+export interface Şekil
+  alan(): number
+  çevre(): number
+export class Kreis implements Форма
+  constructor(public radius: number)
+  площадь(): number
+  периметр(): number
+export class 円
+  constructor(半径: number)
+  面積(): number
+  周長(): number
+export class DaireŞekli implements Şekil
+  constructor(public yarıçap: number)
+  alan(): number
+  çevre(): number
+export type Зміна<T>
+export function вітання(імʼя: string): string
+export function grüßen(name: string): string
+export function résoudre(équation: string): number
+export function حساب(قيمة: number, معامل: number): number
+export const beschreibung: string = …
+export const описание: string = …
+export const 説明: string = …

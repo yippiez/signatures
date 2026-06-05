@@ -1,0 +1,29 @@
+const val API_BASE_URL = …
+const val DEFAULT_TIMEOUT_MS = …
+data class User(val id: Long, val name: String, val email: String, val role: UserRole)
+data class PagedResult<T>(val items: List<T>, val total: Int, val page: Int, val pageSize: Int)
+enum class UserRole
+interface UserRepository
+  suspend fun findById(id: Long): User?
+  suspend fun findAll(page: Int, pageSize: Int): PagedResult<User>
+  suspend fun save(user: User): User
+  suspend fun delete(id: Long): Boolean
+  fun observeChanges(): Flow<User>
+interface AuthService
+  suspend fun login(email: String, password: String): String
+  suspend fun logout(token: String)
+  suspend fun validateToken(token: String): Boolean
+  fun currentUser(): User?
+class UserRepositoryImpl(private val db: Database, private val cache: Cache) : UserRepository
+  override suspend fun findById(id: Long): User?
+  override suspend fun findAll(page: Int, pageSize: Int): PagedResult<User>
+  override suspend fun save(user: User): User
+  override suspend fun delete(id: Long): Boolean
+  override fun observeChanges(): Flow<User>
+  private fun Row.toUser(): User
+object AppConfig
+  val instance: AppConfig get() = …
+  fun load(path: String): Map<String, String>
+  fun get(key: String, default: String = ""): String
+fun <T> retry(times: Int, block: suspend () -> T): T
+suspend fun fetchUserProfile(id: Long, repo: UserRepository): User

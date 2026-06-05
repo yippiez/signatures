@@ -1,0 +1,8 @@
+MAX = …
+class Greeter
+  GREETING = …
+  def initialize(name)
+  def greet
+module Helpers
+  def self.run
+def add(a, b)

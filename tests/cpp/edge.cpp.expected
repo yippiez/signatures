@@ -1,0 +1,28 @@
+namespace open_ns
+  struct Empty
+  struct Constants
+    static constexpr int ZERO = …
+    static constexpr double PI = …
+    static constexpr bool FALSE = …
+  auto make_pair(int a, int b) -> std::pair<int,int>
+  const int* pointer_to_const(int* p)
+  int* const const_pointer(int* p)
+  void multi_out(int in, int* out1, double* out2, bool* ok)
+  int printf_like(const char* fmt, ...)
+  std::map<std::string, std::vector<int>> build_index(const std::vector<std::string>& words)
+  enum 
+  typedef struct
+  void register_callback(void (*cb)(int, void*), void* userdata)
+  constexpr int factorial(int n)
+  static const int LIMIT = …
+  class Peculiar
+    ~Peculiar() = default
+    explicit operator bool() const
+    explicit operator int() const
+    typedef int value_t
+    virtual void update(float dt) = 0
+    virtual int priority() const = 0
+    void reset(int mode = 0)
+  namespace unclosed
+    struct Dangling
+    int dangle(int x)

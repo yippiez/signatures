@@ -1,0 +1,32 @@
+namespace 数学
+  constexpr double 円周率 = …
+  constexpr double 自然対数の底 = …
+  struct ベクトル
+  class 行列
+    explicit 行列(int 行数, int 列数)
+    double 要素(int 行, int 列) const
+    void 設定(int 行, int 列, double 値)
+    int 行数() const
+    int 列数() const
+    bool 正方形か() const
+  double 内積(const ベクトル& a, const ベクトル& b)
+  ベクトル 外積(const ベクトル& a, const ベクトル& b)
+  double ノルム(const ベクトル& v)
+namespace Größen
+  enum class Einheit
+  struct Größe
+  class Messung
+    explicit Messung(std::string Beschreibung)
+    void hinzufügen(Größe g)
+    double Durchschnitt() const
+    double Minimum() const
+    double Maximum() const
+    std::size_t Anzahl() const
+  Größe addieren(const Größe& a, const Größe& b)
+  bool gleich(const Größe& a, const Größe& b)
+namespace util
+  constexpr int MAX_Größe = …
+  class Übersetzer
+    explicit Übersetzer(std::string sprache)
+    std::string übersetzen(const std::string& text) const
+    bool unterstützt(const std::string& sprache) const

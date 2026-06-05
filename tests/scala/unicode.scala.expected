@@ -1,0 +1,21 @@
+trait 形状
+  def 面積(): Double
+  def 周囲(): Double
+class 円(半径: Double) extends 形状
+  def 面積(): Double
+  def 周囲(): Double
+  def 直径(): Double
+case class 点(x座標: Double, y座標: Double)
+  def 距離(other: 点): Double
+object 数学定数
+  val e: Double = …
+  def 絶対値(x: Double): Double
+  def 平方根(x: Double): Double
+trait Ψ[A]
+  def ψ(a: A): A
+  def φ(a: A, b: A): A
+class Ω(val λ: Int)
+  def Δ(x: Int): Int
+  def ∑(xs: List[Int]): Int
+object Σ
+  def Φ(n: Int): Long

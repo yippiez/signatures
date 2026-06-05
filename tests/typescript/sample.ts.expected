@@ -1,0 +1,8 @@
+export const MAX: number = …
+interface Shape
+  area(): number
+export class Circle implements Shape
+  constructor(public r: number)
+  area(): number
+function add(a: number, b: number): number
+type Pair<T> = [T, T]

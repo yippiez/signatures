@@ -1,0 +1,12 @@
+public class Unicode
+  public static final String LANGUAGE = …
+  public Unicode(String données)
+  public String getDonnées()
+  public void setDonnées(String données)
+  public int longueur()
+interface Beschreibbar
+  String beschreiben()
+enum Richtung
+  public boolean istVertical()
+record Koordinate(double breite, double länge)
+  public double distanzZum(Koordinate andere)

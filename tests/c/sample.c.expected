@@ -1,0 +1,5 @@
+#define MAX …
+static const int LIMIT = …
+struct Point
+int add(int a, int b)
+void process(struct Point *p)

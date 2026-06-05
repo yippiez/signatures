@@ -1,0 +1,25 @@
+export const API_KEY: string = …
+export const TIMEOUT: number = …
+export interface Partial
+export class Misaligned
+  constructor(public x: number, public y: number)
+  getValue(): number
+  scale(factor: number): Misaligned
+export const A: number = …
+export enum Status
+export type LongUnion
+export function legacy(a, b)
+export const double = n => n * 2
+export type Flip<T> = T extends true ? false : true
+export class Duplicate
+  constructor(private value: number)
+  compute(): number
+  compute(): string
+export interface Mega extends Comparable, Serializable, Cloneable, Iterable
+  megaMethod(a: number, b: string, c: boolean, d: object, e: unknown[]): Promise<void>
+export type Nested<A, B, C> = Map<A, Map<B, Set<C>>>
+export function withDefaults({ x = 0, y = 0, z = 0 }: { x?: number; y?: number; z?: number } = {}): string
+export const getVersion = (): string => "1.0.0"
+export class Registry
+  static register(key: string, value: unknown): void
+  static lookup(key: string): unknown

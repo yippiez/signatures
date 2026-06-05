@@ -1,0 +1,19 @@
+export const DEFAULT_TIMEOUT = …
+export const BASE_URL = …
+const MAX_RETRIES = …
+export class HttpError extends Error
+  constructor(status, message)
+  isClientError()
+  isServerError()
+  toString()
+export class HttpClient extends EventEmitter
+  constructor(baseUrl, options)
+  get defaultHeaders()
+  set authToken(token)
+  addInterceptor(fn)
+  async get(path, params)
+  async post(path, body)
+  async put(path, body)
+  async _request(method, path, body, params)
+        const res = …
+export function createClient(baseUrl, options)

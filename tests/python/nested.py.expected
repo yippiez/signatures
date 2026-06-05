@@ -1,0 +1,43 @@
+MAX_DEPTH: int = …
+class Outer:
+  OUTER_CONST: str = …
+  def outer_method(self) -> str:
+  class Middle:
+    MIDDLE_CONST: int = …
+    def middle_method(self, x: int) -> int:
+    class Inner:
+      INNER_CONST: float = …
+      def inner_method(self) -> float:
+      def inner_helper(self, val: Any) -> bool:
+      class DeepestLevel:
+        DEEPEST: str = …
+        def deepest_method(self) -> str:
+    def another_middle_method(self) -> None:
+  def outer_factory(self) -> "Outer.Middle":
+class Registry:
+  REGISTRY_VERSION: int = …
+  def __init__(self) -> None:
+  def register(self, name: str) -> Callable:
+    def decorator(fn: Callable) -> Callable:
+  def dispatch(self, name: str, *args: Any, **kwargs: Any) -> Any:
+  class HandlerError(Exception):
+    CODE: int = …
+    def __init__(self, message: str, handler_name: str) -> None:
+    def to_dict(self) -> dict:
+def make_counter(start: int = 0, step: int = 1) -> Callable[[], int]:
+  def increment() -> int:
+def pipeline(*stages: Callable) -> Callable:
+  def run(value: Any) -> Any:
+class TreeNode:
+  def __init__(self, value: Any, left: Optional["TreeNode"] = None, right: Optional["TreeNode"] = None) -> None:
+  def insert(self, value: Any) -> "TreeNode":
+  def height(self) -> int:
+  def to_list(self) -> list:
+  class Visitor:
+    ORDER_PRE: str = …
+    ORDER_IN: str = …
+    ORDER_POST: str = …
+    def visit(self, node: "TreeNode", order: str = "in") -> list:
+    def _pre(self, node: Optional["TreeNode"]) -> list:
+    def _in(self, node: Optional["TreeNode"]) -> list:
+    def _post(self, node: Optional["TreeNode"]) -> list:

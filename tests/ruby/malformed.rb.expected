@@ -1,0 +1,16 @@
+WEIRD_CONST = …
+class Orphan
+  ORPHAN_LIMIT = …
+  def initialize
+  def too_many_close(x))
+module Reprise
+  FIRST = …
+module Reprise
+  SECOND = …
+  def self.sum
+def 
+class Outer
+  class Inner
+    DEEP = …
+    def deep_method(a, b, c)
+    def outer_method
