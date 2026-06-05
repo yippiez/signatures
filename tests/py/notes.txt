@@ -1,0 +1,2 @@
+this is not a python file
+def not_parsed(): pass
