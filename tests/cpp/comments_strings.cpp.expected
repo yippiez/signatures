@@ -5,6 +5,8 @@ namespace tricks
     std::string get_fake_code() const
     std::string get_raw_fake() const
     bool is_valid() const
+    StringHolder operator+(const StringHolder& other) const
+    bool operator==(const StringHolder& other) const
   int real_function(int a, int b)
   struct RealStruct
   enum class Color

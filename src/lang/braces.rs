@@ -166,8 +166,11 @@ impl Language for BraceLang {
 
             let (header, consumed, term) = gather(&mlines, &olines, i);
 
+            // Inside a type/class body (tagged `false`), a return-type-less
+            // `Name(...)` is a constructor, not a call — let `classify` know.
+            let in_type_body = stack.last().copied() == Some(false);
             let mut pending: Option<bool> = None;
-            if let Some((kind, text)) = classify(&header, term, self.lang) {
+            if let Some((kind, text)) = classify(&header, term, self.lang, in_type_body) {
                 let suppress =
                     kind == Kind::Constant && stack.last().copied().unwrap_or(false);
                 if !suppress {
@@ -409,6 +412,16 @@ fn mask(source: &str, lang: Lang) -> String {
         if lang == Lang::Rust && (c == 'r' || c == 'b') {
             if let Some(ni) = mask_rust_raw(&chars, i, &mut out) {
                 i = ni;
+                continue;
+            }
+        }
+
+        // C++ raw string literals: R"(...)" / R"delim(...)delim" (with optional
+        // L/u/U/u8 encoding prefix). Span newlines and ignore their contents.
+        if lang == Lang::Cpp && c == 'R' && i + 1 < n && chars[i + 1] == '"' {
+            let prev_ok = i == 0 || !is_ident_byte_char(chars[i - 1]) || is_cpp_str_prefix(&chars, i);
+            if prev_ok {
+                i = mask_cpp_raw(&chars, i, &mut out);
                 continue;
             }
         }
@@ -660,6 +673,63 @@ fn mask_rust_raw(chars: &[char], start: usize, out: &mut String) -> Option<usize
     Some(i)
 }
 
+/// Does the `R` at `pos` follow a valid C++ string encoding prefix (`L`, `u`,
+/// `U`, `u8`) that is itself at a token boundary? Lets `u8R"..."` etc. be seen
+/// as a raw string even though `8`/`u` are identifier chars.
+fn is_cpp_str_prefix(chars: &[char], pos: usize) -> bool {
+    // Single-letter prefix: L / u / U.
+    if pos >= 1 && matches!(chars[pos - 1], 'L' | 'u' | 'U') {
+        return pos < 2 || !is_ident_byte_char(chars[pos - 2]);
+    }
+    // Two-char prefix: u8.
+    if pos >= 2 && chars[pos - 1] == '8' && chars[pos - 2] == 'u' {
+        return pos < 3 || !is_ident_byte_char(chars[pos - 3]);
+    }
+    false
+}
+
+/// Mask a C++ raw string literal `R"delim(...)delim"` starting at the `R`
+/// (`chars[start + 1]` is `"`). Spans newlines (preserved). Returns the index
+/// just past the closing `"`.
+fn mask_cpp_raw(chars: &[char], start: usize, out: &mut String) -> usize {
+    let n = chars.len();
+    out.push(' '); // R
+    out.push(' '); // opening "
+    let mut i = start + 2;
+    // Delimiter: any chars up to the opening `(` (C++ forbids `(`, `)`,
+    // whitespace and backslash in it).
+    let mut delim: Vec<char> = Vec::new();
+    while i < n && chars[i] != '(' {
+        if chars[i] == '"' || chars[i].is_whitespace() {
+            break; // malformed — give up gracefully
+        }
+        delim.push(chars[i]);
+        out.push(' ');
+        i += 1;
+    }
+    if i >= n || chars[i] != '(' {
+        return i;
+    }
+    out.push(' '); // (
+    i += 1;
+    // Closing sequence is `)` + delim + `"`.
+    let mut close: Vec<char> = Vec::with_capacity(delim.len() + 2);
+    close.push(')');
+    close.extend_from_slice(&delim);
+    close.push('"');
+    while i < n {
+        if chars[i] == ')' && i + close.len() <= n && chars[i..i + close.len()] == close[..] {
+            for _ in 0..close.len() {
+                out.push(' ');
+            }
+            return i + close.len();
+        }
+        out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+        i += 1;
+    }
+    i
+}
+
 /// Blank a Java/TS annotation `@Name`, `@Name.Sub`, optionally `@Name(...)`.
 fn mask_annotation(chars: &[char], start: usize, out: &mut String) -> usize {
     let n = chars.len();
@@ -812,6 +882,21 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
         while j < mchars.len() {
             let mc = mchars[j];
             match mc {
+                // C++ operator-overload name: consume `operator` plus its symbol
+                // (`<<`, `<=>`, `->`, `[]`, `()`, `==`, `=` …) as literal text so
+                // the symbol's `<`/`>`/`(`/`[` are not counted as generics/parens.
+                'o' if paren <= 0
+                    && angle <= 0
+                    && !seen_top_eq
+                    && is_word_at(&mchars, j, "operator")
+                    && (j == lead || !is_ident_byte_char(mchars[j - 1])) =>
+                {
+                    let endp = operator_token_end(&mchars, j);
+                    for p in j..endp {
+                        piece.push(och(p));
+                    }
+                    j = endp;
+                }
                 '(' | '[' => {
                     paren += 1;
                     piece.push(och(j));
@@ -1090,6 +1175,11 @@ fn prefilter(t: &str, lang: Lang) -> bool {
             if !name.is_empty() && !is_control(name) {
                 return true;
             }
+            // C++ operator overloads have a symbol name (`operator+`, `operator[]`,
+            // `operator=`) that `trailing_ident` cannot read.
+            if lang == Lang::Cpp && operator_keyword_start(&t[..idx]).is_some() {
+                return true;
+            }
         }
     }
 
@@ -1098,7 +1188,7 @@ fn prefilter(t: &str, lang: Lang) -> bool {
 
 /// Decide what kind of declaration a gathered header is, returning the kind and
 /// its normalized text (body already removed by `gather`).
-fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
+fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<(Kind, String)> {
     let h = header.trim();
     if h.is_empty() {
         return None;
@@ -1116,8 +1206,9 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
     // is a `typedef`); a bare `struct T *field;` is a type *use* (field), not a
     // declaration.
     if matches!(lang, Lang::C | Lang::Cpp) && class_keywords(lang).contains(&kw) {
-        if h.contains('(') && looks_like_function(h, lang, term) {
-            return Some((Kind::Function, fn_text(h)));
+        if h.contains('(') && looks_like_function(h, lang, term, in_type_body) {
+            let text = if lang == Lang::Cpp { cpp_fn_text(h) } else { fn_text(h) };
+            return Some((Kind::Function, text));
         }
         if kw == "typedef" || term == Term::Brace {
             return Some((Kind::Class, class_text(h, lang)));
@@ -1207,7 +1298,7 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
         }
         Lang::C | Lang::Cpp => {
             if matches!(kw, "const" | "constexpr" | "static") {
-                if looks_like_function(h, lang, term) {
+                if looks_like_function(h, lang, term, in_type_body) {
                     return Some((Kind::Function, h.to_string()));
                 }
                 // `static` alone (no `const`/`constexpr`) is mutable — not a
@@ -1317,9 +1408,10 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
     if matches!(
         lang,
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
-    ) && looks_like_function(h, lang, term)
+    ) && looks_like_function(h, lang, term, in_type_body)
     {
-        return Some((Kind::Function, fn_text(h)));
+        let text = if lang == Lang::Cpp { cpp_fn_text(h) } else { fn_text(h) };
+        return Some((Kind::Function, text));
     }
 
     None
@@ -1396,13 +1488,30 @@ fn classify_define(line: &str) -> Option<(Kind, String)> {
 }
 
 /// Does `h` have the shape of a function/method definition or declaration?
-fn looks_like_function(h: &str, lang: Lang, term: Term) -> bool {
+fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> bool {
     let idx = match h.find('(') {
         Some(i) => i,
         None => return false,
     };
     let before = h[..idx].trim_end();
     let head = callable_head(before);
+
+    // C++ operator functions: `R operator@(...)`, `operator T(...)`. The name is
+    // the `operator` token — possibly a symbol (`operator+`, `operator[]`,
+    // `operator->`) that `trailing_ident` cannot read — so detect the keyword and
+    // accept it directly, rejecting obvious expression/statement contexts.
+    if lang == Lang::Cpp {
+        if let Some(op_start) = operator_keyword_start(before) {
+            if term != Term::Brace && term != Term::Semi {
+                return false;
+            }
+            let pre = before[..op_start].trim();
+            return !pre.ends_with('.')
+                && !is_control(pre.split_whitespace().next().unwrap_or(""))
+                && !pre.contains(|c| matches!(c, '=' | '{' | '}' | ';' | '?'));
+        }
+    }
+
     let name = trailing_ident(head);
     if name.is_empty() || is_control(name) {
         return false;
@@ -1437,8 +1546,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term) -> bool {
         // type annotation; accept those alongside `{`-bodied methods.
         Lang::Ts => term == Term::Brace || (term == Term::Semi && has_return_annotation(h)),
         // Keyword-less, type-prefixed callables (definitions and prototypes).
+        // A C++ member with no return type inside a class/struct body is a
+        // constructor (`Foo(int)`), so allow an empty prefix there.
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Dart => {
-            !prefix.is_empty() && (term == Term::Brace || term == Term::Semi)
+            let prefix_ok = !prefix.is_empty() || (lang == Lang::Cpp && in_type_body);
+            prefix_ok && (term == Term::Brace || term == Term::Semi)
         }
         _ => false,
     }
@@ -1754,6 +1866,104 @@ fn fn_text(h: &str) -> String {
     }
 }
 
+/// C++ function header text with any body specifier dropped. Like `fn_text` but
+/// only cuts at a top-level `=` that appears *after* the parameter list, so a
+/// copy/move-assignment `operator=` (whose `=` precedes the params) is preserved
+/// while `= default` / `= delete` / `= 0` are still removed.
+fn cpp_fn_text(h: &str) -> String {
+    if let Some(open) = h.find('(') {
+        if let Some(rel_close) = matched_paren_end(&h[open..]) {
+            let after = open + rel_close;
+            if let Some(eq_rel) = find_top_eq(&h[after..]) {
+                return h[..after + eq_rel].trim_end().to_string();
+            }
+            return h.trim().to_string();
+        }
+    }
+    fn_text(h)
+}
+
+/// Does `chars[pos..]` begin with the whole word `word`, bounded after by a
+/// non-identifier char? (Caller checks the boundary before `pos`.)
+fn is_word_at(chars: &[char], pos: usize, word: &str) -> bool {
+    let wl = word.chars().count();
+    if pos + wl > chars.len() {
+        return false;
+    }
+    if !word.chars().enumerate().all(|(k, wc)| chars[pos + k] == wc) {
+        return false;
+    }
+    let after = pos + wl;
+    after >= chars.len() || !is_ident_byte_char(chars[after])
+}
+
+/// Given `chars[start..]` beginning with the word `operator`, return the index
+/// just past the full operator name (the keyword plus its symbol/conversion
+/// token: `operator+`, `operator<<`, `operator<=>`, `operator[]`, `operator()`,
+/// `operator bool`, `operator new[]`). Stops before the parameter list.
+fn operator_token_end(chars: &[char], start: usize) -> usize {
+    let n = chars.len();
+    let mut i = start + "operator".len();
+    while i < n && chars[i].is_whitespace() {
+        i += 1;
+    }
+    if i >= n {
+        return i;
+    }
+    let c = chars[i];
+    // `operator()` / `operator[]`: the bracket pair is the name, not the params.
+    if (c == '(' && i + 1 < n && chars[i + 1] == ')')
+        || (c == '[' && i + 1 < n && chars[i + 1] == ']')
+    {
+        return i + 2;
+    }
+    // Conversion / named operator (`operator bool`, `operator new`, `delete`).
+    if c == '_' || c.is_alphabetic() {
+        let mut j = i;
+        while j < n && (chars[j] == '_' || chars[j].is_alphanumeric()) {
+            j += 1;
+        }
+        if j + 1 < n && chars[j] == '[' && chars[j + 1] == ']' {
+            j += 2;
+        }
+        return j;
+    }
+    // Symbol operator: a run of operator-punctuation characters.
+    let mut j = i;
+    while j < n
+        && matches!(
+            chars[j],
+            '+' | '-' | '*' | '/' | '%' | '^' | '&' | '|' | '~' | '!' | '=' | '<' | '>' | ','
+        )
+    {
+        j += 1;
+    }
+    if j == i {
+        i
+    } else {
+        j
+    }
+}
+
+/// Byte index where a C++ `operator` keyword starts in `s`, if `s` contains the
+/// whole word `operator` (bounded by non-identifier chars). Used to recognize
+/// operator-overload functions whose name is a symbol (`operator+`, `operator[]`).
+fn operator_keyword_start(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while let Some(rel) = s[i..].find("operator") {
+        let pos = i + rel;
+        let before_ok = pos == 0 || !is_ident_byte_char(b[pos - 1] as char);
+        let after = pos + "operator".len();
+        let after_ok = after >= b.len() || !is_ident_byte_char(b[after] as char);
+        if before_ok && after_ok {
+            return Some(pos);
+        }
+        i = pos + "operator".len();
+    }
+    None
+}
+
 /// Take the trailing identifier run from `s`. Operates on chars so Unicode
 /// identifiers (e.g. `grüßen`, `話す`) are kept whole.
 fn trailing_ident(s: &str) -> &str {
@@ -1911,6 +2121,48 @@ mod tests {
         assert_eq!(s[1].kind, Kind::Function);
         assert_eq!(s[1].text, "int after(void)");
         assert_eq!(s[1].line, 3);
+    }
+
+    #[test]
+    fn cpp_constructors_recognized() {
+        // Constructors have no return type; they must still be detected inside a
+        // class/struct body (but a bare call elsewhere must not be).
+        let src = "class Widget {\npublic:\n    Widget();\n    Widget(int v);\n    ~Widget();\n};\n";
+        let s = sigs(Lang::Cpp, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class Widget", "Widget()", "Widget(int v)", "~Widget()"]);
+        assert!(s[1].kind == Kind::Function);
+    }
+
+    #[test]
+    fn cpp_operator_overloads_recognized() {
+        let src = "struct F {\n    F operator+(const F& o) const;\n    bool operator==(const F& o) const;\n    F& operator[](int i);\n    F& operator=(const F& o);\n};\nF operator<<(int a, const F& f);\n";
+        let s = sigs(Lang::Cpp, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "struct F",
+                "F operator+(const F& o) const",
+                "bool operator==(const F& o) const",
+                "F& operator[](int i)",
+                "F& operator=(const F& o)",
+                "F operator<<(int a, const F& f)",
+            ]
+        );
+    }
+
+    #[test]
+    fn cpp_raw_string_masked() {
+        // Raw-string contents (fake decls + stray braces) must be ignored, and
+        // the braces inside must not corrupt the nesting of later declarations.
+        let src = "void before();\nconst char* s = R\"(\nvoid fake() {}\n{ {\n)\";\nvoid after();\n";
+        let s = sigs(Lang::Cpp, src);
+        let funcs: Vec<&str> =
+            s.iter().filter(|x| x.kind == Kind::Function).map(|x| x.text.as_str()).collect();
+        assert_eq!(funcs, vec!["void before()", "void after()"]);
+        // `after` stays at top level — raw-string braces did not nest it.
+        assert_eq!(s.last().unwrap().indent, 0);
     }
 
     #[test]

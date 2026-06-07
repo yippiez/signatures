@@ -1,0 +1,11 @@
+struct Foo
+  Foo operator+(const Foo& o) const
+  Foo& operator+=(const Foo& o)
+  bool operator==(const Foo& o) const
+  bool operator<(const Foo& o) const
+  Foo& operator[](std::size_t i)
+  Foo* operator->()
+  Foo operator()(int x)
+  Foo& operator=(const Foo& o)
+  explicit operator bool() const
+std::ostream& operator<<(std::ostream& os, const Foo& f)

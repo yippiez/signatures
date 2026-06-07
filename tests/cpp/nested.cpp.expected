@@ -5,6 +5,7 @@ namespace corp
         struct Vertex
         struct Triangle
         class Mesh
+          Mesh()
           void add_vertex(Vertex v)
           void add_triangle(Triangle t)
           unsigned vertex_count() const
@@ -35,6 +36,7 @@ namespace corp
         void remove_mesh(unsigned id)
         unsigned mesh_count() const
         class Node
+          Node(unsigned id, detail::Mesh m, Material mat)
           unsigned id() const
           const detail::Mesh& mesh() const
           const Material& material() const

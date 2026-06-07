@@ -5,6 +5,7 @@ namespace http
   enum class StatusCode
   struct Header
   class Request
+    Request()
     explicit Request(Method m, std::string url)
     Method method() const
     const std::string& url() const
@@ -14,6 +15,7 @@ namespace http
     void add_header(std::string name, std::string value)
     bool is_secure() const
   class Response
+    Response()
     explicit Response(StatusCode code)
     StatusCode status() const
     int status_int() const
@@ -35,6 +37,8 @@ namespace http
   class Server
     explicit Server(uint16_t port = DEFAULT_PORT)
     ~Server()
+    Server(const Server&)
+    Server& operator=(const Server&)
     void set_router(Router r)
     void listen()
     void stop()

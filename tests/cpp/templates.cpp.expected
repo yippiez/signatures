@@ -2,9 +2,12 @@ namespace tpl
   T clamp(T value, T lo, T hi)
   OutputIt copy_if_transformed(InputIt first, InputIt last, OutputIt d_first, UnaryPredicate pred)
   class StaticArray
+    StaticArray()
     explicit StaticArray(Args&&... args)
     reference at(size_type i)
     const_reference at(size_type i) const
+    reference operator[](size_type i)
+    const_reference operator[](size_type i) const
     size_type size() const
     bool empty() const
     T* begin()
@@ -20,6 +23,7 @@ namespace tpl
   struct TypeList
     static constexpr std::size_t size = …
   class NumericRange
+    NumericRange(T lo, T hi)
     T lo() const
     T hi() const
     T length() const
