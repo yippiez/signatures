@@ -106,7 +106,14 @@ impl Language for BraceLang {
                     });
                 }
                 update_stack(&mut stack, &mlines[i..=i], None);
-                i += 1;
+                // A directive ending in `\` continues onto the following lines;
+                // skip them so multi-line macro bodies are not scanned as
+                // top-level declarations.
+                let mut k = i;
+                while k < mlines.len() && mlines[k].ends_with('\\') {
+                    k += 1;
+                }
+                i = (k + 1).min(mlines.len());
                 continue;
             }
 
@@ -257,11 +264,23 @@ fn mask(source: &str, lang: Lang) -> String {
         let c = chars[i];
 
         // Line comment `// ...` — blank to spaces (length preserved so the
-        // masked stream stays index-aligned with the original source).
+        // masked stream stays index-aligned with the original source). In C/C++
+        // a backslash immediately before the newline splices the next line into
+        // the comment (phase-2 line splicing), so keep blanking across it.
         if c == '/' && i + 1 < n && chars[i + 1] == '/' {
-            while i < n && chars[i] != '\n' {
-                out.push(' ');
-                i += 1;
+            loop {
+                let mut last_was_backslash = false;
+                while i < n && chars[i] != '\n' {
+                    last_was_backslash = chars[i] == '\\';
+                    out.push(' ');
+                    i += 1;
+                }
+                if matches!(lang, Lang::C | Lang::Cpp) && last_was_backslash && i < n {
+                    out.push('\n');
+                    i += 1;
+                    continue;
+                }
+                break;
             }
             continue;
         }
@@ -1743,6 +1762,40 @@ mod tests {
 
     fn sigs(lang: Lang, src: &str) -> Vec<Signature> {
         BraceLang { lang }.extract(src)
+    }
+
+    #[test]
+    fn c_line_comment_backslash_splice() {
+        // C splices a `//` comment across a trailing backslash-newline, so the
+        // "hidden" function on the continuation line must be suppressed.
+        let src = "// comment \\\nint hidden(void) { return 0; }\nint real(void) { return 1; }\n";
+        let s = sigs(Lang::C, src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "int real(void)");
+        assert_eq!(s[0].line, 3);
+    }
+
+    #[test]
+    fn c_multiline_define_body_skipped() {
+        let src = "#define M \\\n    struct Hidden { int x; };\nint after(void) { return 0; }\n";
+        let s = sigs(Lang::C, src);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].kind, Kind::Constant);
+        assert_eq!(s[0].text, "#define M …");
+        assert_eq!(s[1].kind, Kind::Function);
+        assert_eq!(s[1].text, "int after(void)");
+        assert_eq!(s[1].line, 3);
+    }
+
+    #[test]
+    fn java_line_comment_no_splice() {
+        // Java does NOT perform backslash-newline splicing: the comment ends at
+        // the newline and the next line is real code.
+        let src = "// comment \\\nclass Real {}\n";
+        let s = sigs(Lang::Java, src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].kind, Kind::Class);
+        assert_eq!(s[0].text, "class Real");
     }
 
     #[test]
