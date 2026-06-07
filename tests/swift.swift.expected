@@ -264,3 +264,10 @@ let رسالة: String = …
 extension 点: Описываемый
   func описать() -> String
   var название: String = …
+@@CASE@@ prefix_postfix_nonisolated_modifiers
+struct S
+  prefix static func - (v: S) -> S
+  static func + (a: S, b: S) -> S
+postfix func +++ (value: Int) -> Int
+actor A
+  nonisolated func count() -> Int

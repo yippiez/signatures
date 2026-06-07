@@ -2056,6 +2056,9 @@ fn is_modifier(w: &str, lang: Lang) -> bool {
                 | "indirect"
                 | "optional"
                 | "discardableresult"
+                | "prefix"
+                | "postfix"
+                | "nonisolated"
         ),
         Lang::Scala => matches!(
             w,
@@ -2740,6 +2743,17 @@ mod tests {
         let s = sigs(Lang::Scala, src);
         let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["class X", "private[this] val a: Int = …", "protected[pkg] def b(): Int"]);
+    }
+
+    #[test]
+    fn swift_prefix_postfix_nonisolated_modifiers() {
+        let src = "struct S {\n  prefix static func - (v: S) -> S { v }\n}\npostfix func +++ (n: Int) -> Int { n }\nactor A {\n  nonisolated func c() -> Int { 0 }\n}\n";
+        let s = sigs(Lang::Swift, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["struct S", "prefix static func - (v: S) -> S", "postfix func +++ (n: Int) -> Int", "actor A", "nonisolated func c() -> Int"]
+        );
     }
 
     #[test]

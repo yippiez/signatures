@@ -892,3 +892,12 @@ extension 点: Описываемый {
         get { return "点" }
     }
 }
+@@CASE@@ prefix_postfix_nonisolated_modifiers
+struct S {
+    prefix static func - (v: S) -> S { return v }
+    static func + (a: S, b: S) -> S { return a }
+}
+postfix func +++ (value: Int) -> Int { return value + 1 }
+actor A {
+    nonisolated func count() -> Int { return 0 }
+}
