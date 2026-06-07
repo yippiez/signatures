@@ -464,6 +464,18 @@ fn mask(source: &str, lang: Lang) -> String {
             }
         }
 
+        // GCC/Clang `__attribute__((…))` and MSVC `__declspec(…)` decorators —
+        // blank them (like an annotation) so the declaration that follows is still
+        // recognized when the decorator leads the line.
+        if matches!(lang, Lang::C | Lang::Cpp)
+            && c == '_'
+            && (starts_with_word(&chars, i, "__attribute__")
+                || starts_with_word(&chars, i, "__declspec"))
+        {
+            i = mask_gnu_attribute(&chars, i, &mut out);
+            continue;
+        }
+
         // C++ raw string literals: R"(...)" / R"delim(...)delim" (with optional
         // L/u/U/u8 encoding prefix). Span newlines and ignore their contents.
         if lang == Lang::Cpp && c == 'R' && i + 1 < n && chars[i + 1] == '"' {
@@ -802,6 +814,43 @@ fn mask_cpp_raw(chars: &[char], start: usize, out: &mut String) -> usize {
         }
         out.push(if chars[i] == '\n' { '\n' } else { ' ' });
         i += 1;
+    }
+    i
+}
+
+/// Blank a GCC/Clang `__attribute__((…))` or MSVC `__declspec(…)` decorator (the
+/// keyword plus its balanced parenthesized argument, possibly spanning lines).
+/// Returns the index just past it.
+fn mask_gnu_attribute(chars: &[char], start: usize, out: &mut String) -> usize {
+    let n = chars.len();
+    let kw_len = if starts_with_word(chars, start, "__attribute__") {
+        "__attribute__".len()
+    } else {
+        "__declspec".len()
+    };
+    let mut i = start;
+    for _ in 0..kw_len {
+        out.push(' ');
+        i += 1;
+    }
+    while i < n && (chars[i] == ' ' || chars[i] == '\t') {
+        out.push(chars[i]);
+        i += 1;
+    }
+    if i < n && chars[i] == '(' {
+        let mut depth = 0i32;
+        while i < n {
+            match chars[i] {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+            i += 1;
+            if depth <= 0 {
+                break;
+            }
+        }
     }
     i
 }
@@ -2785,6 +2834,16 @@ mod tests {
             texts,
             vec!["interface P", "required(): void", "optional?(): void", "type A = { a: string } & { b: number }"]
         );
+    }
+
+    #[test]
+    fn c_leading_gnu_attribute() {
+        // A declaration led by __attribute__/__declspec must still be detected
+        // (the decorator is elided, like other annotations).
+        let src = "__attribute__((noinline)) int f(int x);\n__declspec(dllexport) int g(int x);\n";
+        let s = sigs(Lang::C, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["int f(int x)", "int g(int x)"]);
     }
 
     #[test]

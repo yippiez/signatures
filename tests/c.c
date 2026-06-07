@@ -627,3 +627,8 @@ bool rect_contains(const Rect *r, i32 x, i32 y) {
     return x >= r->x && x < r->x + r->width &&
            y >= r->y && y < r->y + r->height;
 }
+@@CASE@@ leading_attribute_declspec
+__attribute__((noinline)) int f(int x);
+__declspec(dllexport) int exported(int x);
+__attribute__((noreturn)) void die(void) { for(;;); }
+int normal(void);

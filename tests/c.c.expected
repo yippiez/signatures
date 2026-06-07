@@ -154,3 +154,8 @@ Node *list_find(const LinkedList *list, const void *key)
 const char *http_status_str(HttpStatus status)
 Rect rect_intersect(Rect a, Rect b)
 bool rect_contains(const Rect *r, i32 x, i32 y)
+@@CASE@@ leading_attribute_declspec
+int f(int x)
+int exported(int x)
+void die(void)
+int normal(void)
