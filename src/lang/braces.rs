@@ -269,9 +269,10 @@ fn update_stack(stack: &mut Vec<bool>, lines: &[&str], body_tag: Option<bool>) {
     }
 }
 
-/// Handle a Go grouped `const`/`var` block: `const ( A = 1\n B = 2 )`. Emits one
-/// constant per member. Returns the number of lines consumed, or `None` if the
-/// line at `start` is not such a block.
+/// Handle a Go grouped `const`/`var`/`type` block: `const ( A = 1\n B = 2 )` or
+/// `type ( ID int64\n Name string )`. Emits one signature per member (constants
+/// for const/var, type declarations for type). Returns the number of lines
+/// consumed, or `None` if the line at `start` is not such a block.
 fn go_group_block(
     mlines: &[&str],
     start: usize,
@@ -280,32 +281,39 @@ fn go_group_block(
 ) -> Option<usize> {
     let first = mlines[start].trim_start();
     let (kw, after) = take_ident(first);
-    if !matches!(kw, "const" | "var") {
+    if !matches!(kw, "const" | "var" | "type") {
         return None;
     }
     if !after.trim_start().starts_with('(') {
         return None;
     }
+    let is_type = kw == "type";
 
-    let mut depth: i32 = 0;
+    let mut depth: i32 = 0; // paren depth
+    let mut bdepth: i32 = 0; // brace depth (skip multi-line struct/interface bodies)
     let mut consumed = 0usize;
     let mut k = start;
     while k < mlines.len() {
         consumed += 1;
         let raw = mlines[k];
-        // At group level (already inside the parens), the leading identifier of
-        // a line names a constant.
-        if depth >= 1 {
+        // At group level (inside the parens, outside any member body), the
+        // leading identifier of a line names a member.
+        if depth >= 1 && bdepth == 0 {
             let t = raw.trim_start();
             if !t.starts_with(')') {
                 let (name, _) = take_ident(t);
                 if !name.is_empty() && !is_control(name) {
-                    out.push(Signature {
-                        indent,
-                        kind: Kind::Constant,
-                        text: format!("{kw} {name} = …"),
-                        line: k + 1,
-                    });
+                    let (kind, text) = if is_type {
+                        // `type X Y` / alias `X = Y` / `X struct {…}` (body cut).
+                        let head = match t.find('{') {
+                            Some(b) => t[..b].trim_end(),
+                            None => t.trim_end(),
+                        };
+                        (Kind::Class, format!("type {}", collapse_ws(head)))
+                    } else {
+                        (Kind::Constant, format!("{kw} {name} = …"))
+                    };
+                    out.push(Signature { indent, kind, text, line: k + 1 });
                 }
             }
         }
@@ -315,6 +323,12 @@ fn go_group_block(
                 ')' => {
                     if depth > 0 {
                         depth -= 1;
+                    }
+                }
+                '{' => bdepth += 1,
+                '}' => {
+                    if bdepth > 0 {
+                        bdepth -= 1;
                     }
                 }
                 _ => {}
@@ -498,14 +512,14 @@ fn mask(source: &str, lang: Lang) -> String {
                 }
                 // Rust double-quoted strings span multiple physical lines.
                 let allow_nl = lang == Lang::Rust;
-                i = mask_quoted(&chars, i, '"', allow_nl, &mut out);
+                i = mask_quoted(&chars, i, '"', allow_nl, true, &mut out);
                 continue;
             }
             '`' if matches!(lang, Lang::Go | Lang::Js | Lang::Ts) => {
-                // Go raw string / JS template literal: spans newlines.
+                // Go raw string (no escapes) / JS template literal (escapes): both
+                // span newlines.
                 let escape = matches!(lang, Lang::Js | Lang::Ts);
-                i = mask_quoted(&chars, i, '`', true, &mut out);
-                let _ = escape; // escapes handled inside mask_quoted for backtick
+                i = mask_quoted(&chars, i, '`', true, escape, &mut out);
                 continue;
             }
             '\'' => {
@@ -521,7 +535,7 @@ fn mask(source: &str, lang: Lang) -> String {
                 match lang {
                     // Languages where `'...'` is a (single- or multi-char) string.
                     Lang::Js | Lang::Ts | Lang::Php | Lang::Dart => {
-                        i = mask_quoted(&chars, i, '\'', false, &mut out);
+                        i = mask_quoted(&chars, i, '\'', false, true, &mut out);
                         continue;
                     }
                     Lang::Rust => {
@@ -560,16 +574,23 @@ fn mask(source: &str, lang: Lang) -> String {
 /// Blank a simple delimited literal starting at `start` (the opening delimiter).
 /// `allow_newline` permits the literal to span lines (templates / Go raw). For
 /// non-newline literals a stray unterminated quote stops at end of line.
-fn mask_quoted(chars: &[char], start: usize, delim: char, allow_newline: bool, out: &mut String) -> usize {
+fn mask_quoted(
+    chars: &[char],
+    start: usize,
+    delim: char,
+    allow_newline: bool,
+    escape: bool,
+    out: &mut String,
+) -> usize {
     let n = chars.len();
     out.push(' ');
     let mut i = start + 1;
-    // Backtick (JS template) and normal quotes honor backslash escapes; Go raw
-    // strings (also backtick) do not, but treating an escaped backtick as
-    // escaped is harmless for masking purposes.
+    // Normal quotes and JS template literals honor backslash escapes; Go raw
+    // strings (backtick) do NOT — there a `\` is literal, so a string ending in
+    // `\` must not consume the closing delimiter (`escape = false`).
     while i < n {
         let c = chars[i];
-        if c == '\\' && i + 1 < n {
+        if escape && c == '\\' && i + 1 < n {
             out.push(' ');
             // Preserve a newline that the backslash escapes so the masked
             // stream stays line-aligned with the source (e.g. Rust/C string
@@ -2354,6 +2375,26 @@ mod tests {
         );
         assert_eq!(s[0].kind, Kind::Class);
         assert_eq!(s.last().unwrap().kind, Kind::Constant);
+    }
+
+    #[test]
+    fn go_type_group_block() {
+        let src = "package main\n\ntype (\n\tID int64\n\tName string\n\tHandler func(ID) error\n)\n";
+        let s = sigs(Lang::Go, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["type ID int64", "type Name string", "type Handler func(ID) error"]);
+        assert!(s.iter().all(|x| x.kind == Kind::Class));
+    }
+
+    #[test]
+    fn go_raw_string_trailing_backslash() {
+        // A Go raw string is not escape-processed; a trailing `\` must not eat the
+        // closing backtick and swallow following declarations.
+        let src = "package main\n\nvar s = `x\\`\n\nfunc Visible() {}\n";
+        let s = sigs(Lang::Go, src);
+        let funcs: Vec<&str> =
+            s.iter().filter(|x| x.kind == Kind::Function).map(|x| x.text.as_str()).collect();
+        assert_eq!(funcs, vec!["func Visible()"]);
     }
 
     #[test]

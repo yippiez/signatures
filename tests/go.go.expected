@@ -124,3 +124,15 @@ const γ = …
 const φ = …
 type Töölö struct
 func NeuesToölö(lat, lon float64) Töölö
+@@CASE@@ type_group
+type ID int64
+type Name string
+type Handler func(ID, Name) error
+@@CASE@@ type_group_struct
+type Simple int
+type Aliased = string
+type WithStruct struct
+func After()
+@@CASE@@ raw_string_backslash
+var s = …
+func Invisible()

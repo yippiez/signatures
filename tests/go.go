@@ -584,3 +584,29 @@ type Töölö struct {
 func NeuesToölö(lat, lon float64) Töölö {
 	return Töölö{}
 }
+@@CASE@@ type_group
+package main
+
+type (
+	ID      int64
+	Name    string
+	Handler func(ID, Name) error
+)
+@@CASE@@ type_group_struct
+package main
+
+type (
+	Simple     int
+	Aliased    = string
+	WithStruct struct {
+		X, Y float64
+	}
+)
+
+func After() {}
+@@CASE@@ raw_string_backslash
+package main
+
+var s = `x\`
+
+func Invisible() {}
