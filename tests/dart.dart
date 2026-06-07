@@ -837,3 +837,31 @@ enum Saison {
 double calculer(double largeur, double hauteur) => largeur * hauteur;
 
 int comparer(Comparable<dynamic> α, Comparable<dynamic> β) => α.compareTo(β);
+@@CASE@@ getters
+class Foo {
+  int _x = 0;
+  int get x => _x;
+  int get y {
+    const localK = 5;
+    return _x + 1;
+  }
+  set x(int v) { _x = v; }
+}
+int get globalValue => 42;
+@@CASE@@ operators
+class Complex {
+  final double re;
+  Complex operator +(Complex other) => this;
+  bool operator ==(Object o) => true;
+}
+@@CASE@@ class_modifiers
+base class Animal {
+  void speak() {}
+}
+interface class Drawable {
+  void draw() {}
+}
+final class Config {
+  final int x = 0;
+}
+final answer = 42;

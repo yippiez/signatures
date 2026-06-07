@@ -1195,6 +1195,10 @@ fn prefilter(t: &str, lang: Lang) -> bool {
                 if matches!(kw, "const" | "final" | "var") {
                     return true;
                 }
+                // Getters have no `(`, so the callable-shape check below misses them.
+                if dart_getter(core).is_some() {
+                    return true;
+                }
             }
             Lang::CSharp => {
                 if matches!(kw, "const") {
@@ -1227,9 +1231,9 @@ fn prefilter(t: &str, lang: Lang) -> bool {
             if !name.is_empty() && !is_control(name) {
                 return true;
             }
-            // C++/C# operator overloads have a symbol name (`operator+`,
+            // C++/C#/Dart operator overloads have a symbol name (`operator+`,
             // `operator[]`, `operator ==`) that `trailing_ident` cannot read.
-            if matches!(lang, Lang::Cpp | Lang::CSharp)
+            if matches!(lang, Lang::Cpp | Lang::CSharp | Lang::Dart)
                 && operator_keyword_start(&t[..idx]).is_some()
             {
                 return true;
@@ -1437,6 +1441,11 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                     return Some((Kind::Constant, const_text(h)));
                 }
             }
+            // Getter: `[Type] get name => …` / `{ … }`. No parameter list, so the
+            // generic callable check never fires; classify it here as a function.
+            if dart_getter(core).is_some() {
+                return Some((Kind::Function, fn_text(h)));
+            }
         }
         Lang::CSharp => {
             if kw == "const" {
@@ -1550,11 +1559,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     let before = h[..idx].trim_end();
     let head = callable_head(before);
 
-    // C++/C# operator functions: `R operator@(...)`, `operator T(...)`. The name
-    // is the `operator` token — possibly a symbol (`operator+`, `operator[]`,
+    // C++/C#/Dart operator functions: `R operator@(...)`, `operator T(...)`. The
+    // name is the `operator` token — possibly a symbol (`operator+`, `operator[]`,
     // `operator ==`) that `trailing_ident` cannot read — so detect the keyword and
     // accept it directly, rejecting obvious expression/statement contexts.
-    if matches!(lang, Lang::Cpp | Lang::CSharp) {
+    if matches!(lang, Lang::Cpp | Lang::CSharp | Lang::Dart) {
         if let Some(op_start) = operator_keyword_start(before) {
             if term != Term::Brace && term != Term::Semi {
                 return false;
@@ -1679,6 +1688,25 @@ fn split_mods<'a>(s: &'a str, lang: Lang) -> (Vec<&'a str>, &'a str) {
             mods.push(&rest[..10]);
             rest = rest[10..].trim_start();
             continue;
+        }
+        // Dart 3 class modifiers `base`/`interface`/`final` precede a class
+        // keyword (or another such modifier). `final` is dual-use (it also marks
+        // a constant), so only treat it as a modifier when a class-introducer
+        // actually follows.
+        if lang == Lang::Dart {
+            let (w, after) = take_ident(rest);
+            if matches!(w, "base" | "interface" | "final") {
+                let (nw, _) = take_ident(after.trim_start());
+                if matches!(
+                    nw,
+                    "class" | "mixin" | "enum" | "extension" | "base" | "interface" | "final"
+                        | "sealed" | "abstract"
+                ) {
+                    mods.push(w);
+                    rest = after.trim_start();
+                    continue;
+                }
+            }
         }
         // Rust/C++ `extern "ABI"` prefix: consume the optional ABI string with
         // the keyword so the following `fn` is recognized.
@@ -1935,6 +1963,28 @@ fn cpp_fn_text(h: &str) -> String {
         }
     }
     fn_text(h)
+}
+
+/// If `core` is a Dart getter (`[Type] get <name> => …` / `{ … }` / `;`), return
+/// the getter name. Getters have no parameter list, so the normal `name(` callable
+/// detection misses them. The `get` keyword must be whole-word and directly
+/// followed by an identifier.
+fn dart_getter(core: &str) -> Option<&str> {
+    let b = core.as_bytes();
+    let mut i = 0;
+    while let Some(rel) = core[i..].find("get") {
+        let pos = i + rel;
+        let before_ok = pos == 0 || !is_ident_byte_char(b[pos - 1] as char);
+        let after = pos + 3;
+        if before_ok && after < b.len() && (b[after] == b' ' || b[after] == b'\t') {
+            let (name, _) = take_ident(core[after..].trim_start());
+            if !name.is_empty() && name != "get" {
+                return Some(name);
+            }
+        }
+        i = pos + 3;
+    }
+    None
 }
 
 /// Does `chars[pos..]` begin with the whole word `word`, bounded after by a
@@ -2265,6 +2315,45 @@ mod tests {
             s.iter().filter(|x| x.kind == Kind::Function).map(|x| x.text.as_str()).collect();
         assert_eq!(funcs, vec!["void M()", "void Good()"]);
         assert_eq!(s.last().unwrap().indent, 1);
+    }
+
+    #[test]
+    fn dart_getters_recognized() {
+        // Getters (no `(`) must be emitted; a block getter's local const must be
+        // suppressed (its body is a function body, not a class body).
+        let src = "class Foo {\n  int get x => _x;\n  int get y {\n    const localK = 5;\n    return 1;\n  }\n  set x(int v) { _x = v; }\n}\nint get globalValue => 42;\n";
+        let s = sigs(Lang::Dart, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["class Foo", "int get x", "int get y", "set x(int v)", "int get globalValue"]
+        );
+    }
+
+    #[test]
+    fn dart_operators_recognized() {
+        let src = "class Complex {\n  Complex operator +(Complex other) => this;\n  bool operator ==(Object o) => true;\n}\n";
+        let s = sigs(Lang::Dart, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["class Complex", "Complex operator +(Complex other)", "bool operator ==(Object o)"]
+        );
+    }
+
+    #[test]
+    fn dart_class_modifiers_recognized() {
+        // base/interface/final class are Dart 3 modifiers; `final answer = …`
+        // must still be a constant (final is dual-use).
+        let src = "base class A {\n  void s() {}\n}\ninterface class B {}\nfinal class C {}\nfinal answer = 42;\n";
+        let s = sigs(Lang::Dart, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["base class A", "void s()", "interface class B", "final class C", "final answer = …"]
+        );
+        assert_eq!(s[0].kind, Kind::Class);
+        assert_eq!(s.last().unwrap().kind, Kind::Constant);
     }
 
     #[test]

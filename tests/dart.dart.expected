@@ -1,36 +1,52 @@
 @@CASE@@ abstract_mixin_enum
 enum LogLevel
   bool get isAtLeast(LogLevel other)
+  String get label
 enum Direction
   final int degrees = …
   const Direction(this.degrees) = …
+  Direction get opposite
 abstract class Shape
   const Shape() = …
+  double get area
+  double get perimeter
   bool contains(Point<double> p)
   String toString()
 mixin Serializable
   Map<String, dynamic> toJson()
   String toJsonString()
 mixin Cacheable
+  String get cacheKey
+  Duration get cacheTtl
   bool isCacheStale(DateTime cachedAt)
 abstract class Result<T>
   const Result() = …
+  bool get isOk
+  T get valueOrThrow
   R fold<R>({required R Function(T) onOk, required R Function(Object) onError})
 class Ok<T> extends Result<T>
   final T value = …
   const Ok(this.value) = …
+  bool get isOk
+  T get valueOrThrow
   R fold<R>({required R Function(T) onOk, required R Function(Object) onError})
 class Err<T> extends Result<T>
   final Object error = …
   const Err(this.error) = …
+  bool get isOk
+  T get valueOrThrow
   R fold<R>({required R Function(T) onOk, required R Function(Object) onError})
 class Circle extends Shape with Serializable, Cacheable
   final double radius = …
   static const double pi = …
   const Circle(this.radius) = …
+  double get area
+  double get perimeter
   bool contains(Point<double> p)
   Map<String, dynamic> toJson()
+  String get cacheKey
 abstract mixin class Disposable
+  bool get isDisposed
   void dispose()
   void assertNotDisposed()
 @@CASE@@ comments_strings
@@ -47,8 +63,11 @@ const String tripleDouble = …
 const String tripleSingle = …
 int realAdd(int a, int b)
 class Settings
+  int get timeout
   set timeout(int value)
+  bool get debug
   set debug(bool value)
+  String get summary
 @@CASE@@ edge
 const String oldApiUrl = …
 const int inlineHint = …
@@ -80,6 +99,7 @@ typedef Predicate<T> = bool Function(T value)
 typedef AsyncMapper<A, B> = Future<B> Function(A input)
 typedef Json = Map<String, dynamic>
 extension StringX on String
+  bool get isBlank
   String capitalize()
 extension ListX<T> on List<T>
   List<T> separated(T separator)
@@ -108,13 +128,19 @@ class BoundedStack<T>
   final int capacity = …
   final List<T> _data = …
   bool push(T item)
+  bool get isFull
+  bool get isEmpty
+  int get size
 class LruCache<K, V>
   final int maxSize = …
   final LinkedHashMap<K, V> _map = …
   void put(K key, V value)
   bool containsKey(K key)
+  int get length
 class TreeNode<T>
   final T value = …
+  bool get isLeaf
+  int get height
 T identity<T>(T value)
 Pair<A, B> zip<A, B>(A a, B b)
 List<B> mapList<A, B>(List<A> items, B Function(A) f)
@@ -139,6 +165,7 @@ const int kVersion = …
 class Outer
   static const String tag = …
   final int id = …
+  int get value
   void process()
   String describe(String label, {bool verbose = false})
   class Inner
@@ -157,6 +184,8 @@ class Container<T extends Comparable<T>>
   final List<T> _items = …
   static const int defaultCapacity = …
   void add(T item)
+  int get length
+  bool get isEmpty
   class View<U>
     final Container<T> source = …
     final U Function(T) transform = …
@@ -171,6 +200,7 @@ class ApiResponse<T>
   final int statusCode = …
   final String? message = …
   const ApiResponse({required this.data, required this.statusCode, this.message}) = …
+  bool get isSuccess
   String toString()
 class User
   final int id = …
@@ -216,6 +246,8 @@ class Geometrie
   final double breite = …
   final double höhe = …
   const Geometrie({required this.breite, required this.höhe}) = …
+  double get fläche
+  double get umfang
 class Kreis
   static const double π = …
   final double radius = …
@@ -223,6 +255,8 @@ class Kreis
   double berechneFlaeche()
   double berechneUmfang()
 abstract class 図形
+  double get 面積
+  double get 周囲長
   bool 含む(double x, double y)
 class Configuración
   final String nombre = …
@@ -231,6 +265,28 @@ class Configuración
   const Configuración({ required this.nombre, this.máximo = 100, this.mínimo = 0, }) = …
   bool esVálido(int valor)
 mixin Étiquetable
+  String get étiquette
+  String get description
 enum Saison
+  String get nomComplet
 double calculer(double largeur, double hauteur)
 int comparer(Comparable<dynamic> α, Comparable<dynamic> β)
+@@CASE@@ getters
+class Foo
+  int get x
+  int get y
+  set x(int v)
+int get globalValue
+@@CASE@@ operators
+class Complex
+  final double re = …
+  Complex operator +(Complex other)
+  bool operator ==(Object o)
+@@CASE@@ class_modifiers
+base class Animal
+  void speak()
+interface class Drawable
+  void draw()
+final class Config
+  final int x = …
+final answer = …
