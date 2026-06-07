@@ -228,3 +228,9 @@ class A<T>
   fun foo(): T?
 class B
   fun bar(): Int
+@@CASE@@ secondary_constructors_and_generic_ext_property
+class Foo(val x: Int)
+  constructor()
+  constructor(s: String)
+  fun bar(): Int
+val <T> List<T>.head: T? get() = …

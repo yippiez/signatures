@@ -631,3 +631,10 @@ class A<T>
 class B {
     fun bar(): Int = 1
 }
+@@CASE@@ secondary_constructors_and_generic_ext_property
+class Foo(val x: Int) {
+    constructor() : this(0) {}
+    constructor(s: String) : this(s.length) {}
+    fun bar(): Int = x
+}
+val <T> List<T>.head: T? get() = firstOrNull()

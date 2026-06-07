@@ -1534,7 +1534,7 @@ fn prefilter(t: &str, lang: Lang) -> bool {
                 }
             }
             Lang::Kotlin => {
-                if matches!(kw, "fun" | "val" | "var") {
+                if matches!(kw, "fun" | "val" | "var" | "constructor") {
                     return true;
                 }
             }
@@ -1802,8 +1802,26 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
             if kw == "fun" {
                 return Some((Kind::Function, fn_text(h)));
             }
+            // Secondary constructor: `constructor(...) : this(...) { }` — drop the
+            // delegation/body, keep `constructor(params)`.
+            if kw == "constructor" {
+                if let Some(open) = h.find('(') {
+                    if let Some(rel) = matched_paren_end(&h[open..]) {
+                        return Some((Kind::Function, h[..open + rel].trim().to_string()));
+                    }
+                }
+                return Some((Kind::Function, fn_text(h)));
+            }
             if matches!(kw, "val" | "var") {
-                let (n2, _) = take_ident(rest.trim_start());
+                // Generic extension property: `val <T> Receiver.name` — skip the
+                // leading `<...>` so the name after it is found.
+                let mut r = rest.trim_start();
+                if r.starts_with('<') {
+                    if let Some(end) = matched_angle_end(r) {
+                        r = r[end..].trim_start();
+                    }
+                }
+                let (n2, _) = take_ident(r);
                 if n2.is_empty() {
                     return None;
                 }
@@ -3311,6 +3329,17 @@ mod tests {
         assert_eq!(
             texts,
             vec!["class A", "String? foo()", "void operator []=(String k, int v)", "String? lookup(String k)"]
+        );
+    }
+
+    #[test]
+    fn kotlin_secondary_constructor_and_generic_ext_property() {
+        let src = "class Foo(val x: Int) {\n  constructor() : this(0) {}\n  constructor(s: String) : this(s.length) {}\n}\nval <T> List<T>.head: T? get() = firstOrNull()\n";
+        let s = sigs(Lang::Kotlin, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["class Foo(val x: Int)", "constructor()", "constructor(s: String)", "val <T> List<T>.head: T? get() = …"]
         );
     }
 
