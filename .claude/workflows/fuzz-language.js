@@ -100,7 +100,7 @@ function createTestsPrompt(failures) {
     'The fuzzers reported these failures (deduplicated):',
     list || '(none — the fuzzers found no failures; create no fixtures.)',
     '',
-    'For each DISTINCT, genuine failure, create a fixture under tests/' + dir + '/ named fuzz_<short-slug>.<ext> holding the MINIMAL reproducing input, and a sibling "<same-name>.expected" containing the CORRECT `signatures --no-color` output (the SET/nesting that SHOULD be produced — NOT the current wrong output). Match the tool\'s exact line format (study tests/' + dir + '/*.expected). Merge duplicate/related failures into one fixture each.',
+    'For each DISTINCT, genuine failure, create a fixture under tests/' + dir + '/ named like an ORDINARY source file — a short descriptive name reflecting the case (e.g. nested_generics, comment_in_params, unterminated_string), NOT a "fuzz_" or "test" prefix. Use the language\'s normal extension and avoid colliding with files already in tests/' + dir + '/. Write the MINIMAL reproducing input plus a sibling "<same-name>.expected" containing the CORRECT `signatures --no-color` output (the SET/nesting that SHOULD be produced — NOT the current wrong output). Match the tool\'s exact line format (study tests/' + dir + '/*.expected). Merge duplicate/related failures into one fixture each.',
     'These fixtures will currently FAIL the suite (they document real bugs) — that is expected and intended. Verify each input does not crash the binary, then run "./tests/run.sh ' + dir + '" and report how many of your new fixtures currently fail.',
     '',
     'Return: created (int), files (paths), currentlyFailing (int), notes.',
