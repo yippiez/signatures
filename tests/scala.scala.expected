@@ -103,7 +103,7 @@ object Bounded
   def clamp[A: Bounded: Ordering](value: A): A
 def identity[A](a: A): A
 def const[A, B](a: A)(b: B): A
-def compose[A, B, C](f: B => C)(g: A => B): A
+def compose[A, B, C](f: B => C)(g: A => B): A => C
 class Container[A <: AnyRef](private var value: A)
   def get: A
   def set(newValue: A): Unit
@@ -211,7 +211,9 @@ object Expr
   val Zero: Expr = …
   val One: Expr = …
   def simplify(e: Expr): Expr
+enum Color
   def toHex: String
+enum Shape(val name: String)
   def area: Double
 sealed abstract class Result[+A]
   def isOk: Boolean
@@ -254,3 +256,16 @@ object Σ
   val β: String = …
   val γ: String = …
   def Φ(n: Int): Long
+@@CASE@@ enum_and_function_types
+enum Color
+  def isWarm: Boolean
+trait Funcs
+  def adder: Int => Int
+  def higher(f: Int => Int): Int => Int
+def topLevel(): Int
+@@CASE@@ operator_method_and_access_qualifier
+class Ord
+  def <(other: Ord): Boolean
+  def lostMethod(): String
+  private[this] val secret: Int = …
+  protected[pkg] def helper(): Int

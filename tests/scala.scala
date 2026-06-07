@@ -565,3 +565,20 @@ object Σ {
 
   def Φ(n: Int): Long = (1L to n).product
 }
+@@CASE@@ enum_and_function_types
+enum Color {
+  case Red, Green, Blue
+  def isWarm: Boolean = this == Red
+}
+trait Funcs {
+  def adder: Int => Int
+  def higher(f: Int => Int): Int => Int
+}
+def topLevel(): Int = 42
+@@CASE@@ operator_method_and_access_qualifier
+class Ord {
+  def <(other: Ord): Boolean = true
+  def lostMethod(): String = "here"
+  private[this] val secret: Int = 1
+  protected[pkg] def helper(): Int = 2
+}

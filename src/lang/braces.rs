@@ -1093,7 +1093,18 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                     piece.push(och(j));
                     j += 1;
                 }
-                '<' if paren <= 0 && !seen_top_eq => {
+                // Only treat `<` as a generic opener when it directly follows an
+                // identifier / closing `>` (`Map<`, `Vec<Vec<`). Otherwise it is a
+                // comparison or a symbolic operator-method name (Scala `def <(o)`),
+                // which must not push the angle counter (it would never balance and
+                // would swallow the rest of the file).
+                '<' if paren <= 0
+                    && !seen_top_eq
+                    && piece
+                        .chars()
+                        .last()
+                        .map_or(false, |c| c == '_' || c == '$' || c == '>' || c.is_alphanumeric()) =>
+                {
                     angle += 1;
                     piece.push(och(j));
                     j += 1;
@@ -1662,7 +1673,7 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
 
 /// Scala `def` text: drop a trailing `= body` / `= {` so only the header shows.
 fn scala_def_text(h: &str) -> String {
-    if let Some(eq) = find_top_eq(h) {
+    if let Some(eq) = find_top_eq_scala(h) {
         h[..eq].trim_end().to_string()
     } else {
         h.trim().to_string()
@@ -1856,7 +1867,7 @@ fn class_keywords(lang: Lang) -> &'static [&'static str] {
         ],
         Lang::Php => &["class", "interface", "trait", "enum"],
         // Scala: `case class` / `case object` handled via the `case` modifier.
-        Lang::Scala => &["class", "trait", "object", "type"],
+        Lang::Scala => &["class", "trait", "object", "type", "enum"],
         Lang::Dart => &["class", "mixin", "enum", "extension", "typedef"],
     }
 }
@@ -1878,6 +1889,23 @@ fn split_mods<'a>(s: &'a str, lang: Lang) -> (Vec<&'a str>, &'a str) {
             mods.push(&rest[..10]);
             rest = rest[10..].trim_start();
             continue;
+        }
+        // Scala access qualifiers `private[X]` / `protected[X]` / `private[this]`.
+        if lang == Lang::Scala {
+            let qual = ["private", "protected"].iter().find_map(|kw| {
+                let after = rest.strip_prefix(kw)?;
+                let a = after.trim_start();
+                if !a.starts_with('[') {
+                    return None;
+                }
+                let close_rel = a.find(']')?;
+                Some(rest.len() - a.len() + close_rel + 1)
+            });
+            if let Some(end) = qual {
+                mods.push(rest[..end].trim_end());
+                rest = rest[end..].trim_start();
+                continue;
+            }
         }
         // Dart 3 class modifiers `base`/`interface`/`final` precede a class
         // keyword (or another such modifier). `final` is dual-use (it also marks
@@ -2275,6 +2303,17 @@ fn trailing_ident(s: &str) -> &str {
 /// Index of the first top-level `=` that is a plain assignment (not `==`, `=>`,
 /// `<=`, `+=`, etc.), or `None`.
 fn find_top_eq(h: &str) -> Option<usize> {
+    find_top_eq_impl(h, false)
+}
+
+/// Like [`find_top_eq`] but also skips a `=>` fat arrow. Used for Scala, where a
+/// `def`'s body separator is a single `=` and `=>` is a function-type/lambda
+/// arrow that must not be mistaken for the body (`def f: Int => Int`).
+fn find_top_eq_scala(h: &str) -> Option<usize> {
+    find_top_eq_impl(h, true)
+}
+
+fn find_top_eq_impl(h: &str, skip_arrow: bool) -> Option<usize> {
     let b = h.as_bytes();
     let mut depth: i32 = 0;
     let mut i = 0;
@@ -2294,7 +2333,8 @@ fn find_top_eq(h: &str) -> Option<usize> {
                     b'=' | b'!' | b'<' | b'>' | b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|'
                         | b'^' | b':'
                 );
-                if next != b'=' && !bad_prev {
+                let is_arrow = skip_arrow && next == b'>';
+                if next != b'=' && !bad_prev && !is_arrow {
                     return Some(i);
                 }
             }
@@ -2673,6 +2713,33 @@ mod tests {
         let s = sigs(Lang::Php, src);
         let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["function f(#[Inject] string $x): void", "function g(int $y): int"]);
+    }
+
+    #[test]
+    fn scala_enum_and_function_type_return() {
+        let src = "enum Color {\n  case Red\n  def isWarm: Boolean = true\n}\ntrait T {\n  def adder: Int => Int\n}\n";
+        let s = sigs(Lang::Scala, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["enum Color", "def isWarm: Boolean", "trait T", "def adder: Int => Int"]);
+        assert_eq!(s[0].kind, Kind::Class);
+    }
+
+    #[test]
+    fn scala_operator_method_does_not_eat_siblings() {
+        // Regression guard: a `def <` operator name must not push the angle
+        // counter and swallow the rest of the file.
+        let src = "class Ord {\n  def <(o: Ord): Boolean = true\n  def kept(): String = \"x\"\n}\ndef topLevel(): Int = 1\n";
+        let s = sigs(Lang::Scala, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class Ord", "def <(o: Ord): Boolean", "def kept(): String", "def topLevel(): Int"]);
+    }
+
+    #[test]
+    fn scala_access_qualifier() {
+        let src = "class X {\n  private[this] val a: Int = 1\n  protected[pkg] def b(): Int = 2\n}\n";
+        let s = sigs(Lang::Scala, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class X", "private[this] val a: Int = …", "protected[pkg] def b(): Int"]);
     }
 
     #[test]
