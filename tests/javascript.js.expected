@@ -17,6 +17,7 @@ class Validator
   addRule(name, fn)
   validate(value, ruleName)
   get ruleCount()
+  [Symbol.iterator]()
 class ExtendedArray extends Array
   constructor(...args)
   first()
@@ -54,6 +55,7 @@ export class AsyncQueue
   enqueue(item)
       const resolve = …
   async dequeue()
+  async *[Symbol.asyncIterator]()
 export async function fetchAll(urls)
 export async function* streamLines(reader)
     const lines = …
@@ -132,3 +134,12 @@ const μ = (σ, n) => σ / Math.sqrt(n)
 const ƒormatter = …
 function résoudre(équation, variable)
 async function récupérerDonnées(url)
+@@CASE@@ arrow_comparison_ops
+const f = (a, b) => a > b
+const g = (a, b) => a < b
+const h = (x) => x >= 0
+@@CASE@@ computed_method_names
+class Foo
+  normalMethod()
+  [Symbol.iterator]()
+  static [Symbol.hasInstance](obj)

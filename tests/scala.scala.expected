@@ -215,10 +215,10 @@ object Expr
   def area: Double
 sealed abstract class Result[+A]
   def isOk: Boolean
-  def getOrElse[B>: A](default: B): B
+  def getOrElse[B >: A](default: B): B
 final case class Ok[+A](value: A) extends Result[A]
   def isOk: Boolean
-  def getOrElse[B>: A](default: B): B
+  def getOrElse[B >: A](default: B): B
 final case class Err(message: String) extends Result[Nothing]
   def isOk: Boolean
   def getOrElse[B](default: B): B

@@ -561,3 +561,13 @@ async function récupérerDonnées(url) {
   const réponse = await fetch(url);
   return réponse.json();
 }
+@@CASE@@ arrow_comparison_ops
+const f = (a, b) => a > b;
+const g = (a, b) => a < b;
+const h = (x) => x >= 0;
+@@CASE@@ computed_method_names
+class Foo {
+  normalMethod() { return 1; }
+  [Symbol.iterator]() {}
+  static [Symbol.hasInstance](obj) { return false; }
+}

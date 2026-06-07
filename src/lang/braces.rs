@@ -1270,6 +1270,10 @@ fn prefilter(t: &str, lang: Lang) -> bool {
             {
                 return true;
             }
+            // JS/TS computed method name `[expr]()` ends in `]`, not an identifier.
+            if matches!(lang, Lang::Js | Lang::Ts) && head.trim_end().ends_with(']') {
+                return true;
+            }
         }
     }
 
@@ -1609,6 +1613,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
 
     let name = trailing_ident(head);
     if name.is_empty() {
+        // JS/TS computed method name `[expr]()` has no trailing identifier; accept
+        // it as a `{`-bodied method.
+        if matches!(lang, Lang::Js | Lang::Ts) && head.trim_end().ends_with(']') {
+            return term == Term::Brace;
+        }
         return false;
     }
     let prefix = head[..head.len() - name.len()].trim();
@@ -2216,6 +2225,9 @@ fn collapse_ws(s: &str) -> String {
 /// Tidy up spacing introduced when joining a multi-line signature.
 fn tidy(s: &str) -> String {
     let mut t = s.to_string();
+    // NOTE: no `< `/` >` collapsing here — it would mangle comparison operators
+    // in expression bodies (`(a, b) => a > b` → `a> b`). Source generics are
+    // already written tight (`Map<String>`), so it isn't needed.
     for (from, to) in [
         ("( ", "("),
         (" )", ")"),
@@ -2225,8 +2237,6 @@ fn tidy(s: &str) -> String {
         (", )", ")"),
         (",)", ")"),
         (",]", "]"),
-        ("< ", "<"),
-        (" >", ">"),
     ] {
         t = t.replace(from, to);
     }
@@ -2432,6 +2442,33 @@ mod tests {
             texts,
             vec!["@interface Ann", "String[] tags() default {}", "String[] more() default {\"a\", \"b\"}"]
         );
+    }
+
+    #[test]
+    fn js_arrow_comparison_operators_not_mangled() {
+        let src = "const f = (a, b) => a > b;\nconst g = (a, b) => a < b;\n";
+        let s = sigs(Lang::Js, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["const f = (a, b) => a > b", "const g = (a, b) => a < b"]);
+    }
+
+    #[test]
+    fn js_computed_method_names() {
+        let src = "class Foo {\n  normalMethod() {}\n  [Symbol.iterator]() {}\n  static [Symbol.hasInstance](obj) {}\n}\n";
+        let s = sigs(Lang::Js, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["class Foo", "normalMethod()", "[Symbol.iterator]()", "static [Symbol.hasInstance](obj)"]
+        );
+    }
+
+    #[test]
+    fn scala_lower_bound_not_mangled() {
+        // Regression guard for the `tidy` change: Scala `[B >: A]` lower bound.
+        let src = "trait T {\n  def getOrElse[B >: A](default: B): B\n}\n";
+        let s = sigs(Lang::Scala, src);
+        assert!(s.iter().any(|x| x.text == "def getOrElse[B >: A](default: B): B"));
     }
 
     #[test]
