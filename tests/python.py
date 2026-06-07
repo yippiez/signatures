@@ -1323,3 +1323,24 @@ def normalize_ñ(text: str) -> str:
     """Normalize text containing ñ."""
     import unicodedata
     return unicodedata.normalize("NFC", text)
+@@CASE@@ multiline_triple_quoted_default
+def f(
+    x="""
+    multi
+    """,
+) -> str:
+    return x
+@@CASE@@ multiline_string_collection_default
+def f(
+    items=[
+        "a",
+        "b",
+    ],
+) -> list:
+    pass
+@@CASE@@ raw_two_char_prefix_string
+def f(x=rb"ends_with_backslash\"):
+    pass
+
+def g() -> int:
+    return 1

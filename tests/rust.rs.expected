@@ -184,3 +184,7 @@ pub struct 辞書<K, V>
   pub fn einfügen(&mut self, schlüssel: K, wert: V)
   pub fn suchen(&self, schlüssel: &K) -> Option<&V>
 pub fn café_name() -> &'static str
+@@CASE@@ macro_invocation_body_suppressed
+fn real()
+@@CASE@@ local_items_in_fn_body_suppressed
+pub fn outer() -> i32

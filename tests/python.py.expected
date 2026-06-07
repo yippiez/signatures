@@ -298,3 +298,10 @@ class 数学クラス:
   def 切り捨て(self) -> int:
 def mixed_αβγ_function(α: float, β: float, γ: float = 0.0) -> float:
 def normalize_ñ(text: str) -> str:
+@@CASE@@ multiline_triple_quoted_default
+def f(x=""" multi """) -> str:
+@@CASE@@ multiline_string_collection_default
+def f(items=["a", "b"]) -> list:
+@@CASE@@ raw_two_char_prefix_string
+def f(x=rb"ends_with_backslash\"):
+def g() -> int:

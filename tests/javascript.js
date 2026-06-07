@@ -571,3 +571,21 @@ class Foo {
   [Symbol.iterator]() {}
   static [Symbol.hasInstance](obj) { return false; }
 }
+@@CASE@@ keyword_method_names
+class Repository {
+  delete(id) { return null; }
+  new(data) { return null; }
+  of(value) { return null; }
+  await(promise) { return null; }
+  normalMethod() { return null; }
+}
+@@CASE@@ keyword_property_keys
+const obj = {
+  function: 1,
+  const: 42,
+  let: 1,
+};
+@@CASE@@ arrow_iife_const
+const b = (() => {
+  return 42;
+})();

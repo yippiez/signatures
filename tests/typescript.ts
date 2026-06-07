@@ -933,3 +933,35 @@ interface Plugin {
 }
 type A = { a: string } & { b: number };
 function after(): void {}
+@@CASE@@ set_accessor_in_interface
+interface WithSetter {
+  get value(): number;
+  set value(v: number);
+}
+@@CASE@@ declare_module_and_global
+declare module 'foo' {
+  function bar(): void;
+}
+declare global {
+  function baz(): void;
+}
+@@CASE@@ declare_const_object_type
+declare const env: {
+  NODE_ENV: string;
+  PORT: number;
+};
+@@CASE@@ comment_leak_in_signature
+export type /* this should not appear */ Foo = string;
+export function /* nor this */ bar(): void {}
+@@CASE@@ local_function_suppressed
+export function outer(): void {
+  function inner(): void {}
+}
+export class Foo {
+  bar(): string[] {
+    function localHelper(s: string): string {
+      return s.trim();
+    }
+    return ["a"].map(localHelper);
+  }
+}

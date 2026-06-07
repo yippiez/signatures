@@ -136,3 +136,18 @@ func After()
 @@CASE@@ raw_string_backslash
 var s = …
 func Invisible()
+@@CASE@@ send_chan_type
+type SendChan chan<- string
+func After()
+@@CASE@@ typed_var_no_init
+var counter int
+func After()
+@@CASE@@ grouped_var_types
+var MaxRetries int
+var BaseURL string
+var Enabled bool
+func Real()
+@@CASE@@ group_value_continuation
+const X = …
+const Y = …
+func After()

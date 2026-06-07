@@ -181,7 +181,14 @@ fn mask_line(line: &str, triple: &mut Option<[char; 3]>) -> (String, Vec<u8>) {
 
         // Single/double-quoted single-line string.
         if c == '"' || c == '\'' {
-            let raw = i > 0 && matches!(cs[i - 1], 'r' | 'R');
+            // A raw string has an `r`/`R` in its prefix. Single-char prefixes
+            // (`r"`) put it directly before the quote; two-char prefixes like
+            // `rb"`/`rf"`/`br"`/`fr"` put a `b`/`f` between the `r` and the
+            // quote, so check the char before that too.
+            let raw = (i > 0 && matches!(cs[i - 1], 'r' | 'R'))
+                || (i > 1
+                    && matches!(cs[i - 1], 'b' | 'B' | 'f' | 'F')
+                    && matches!(cs[i - 2], 'r' | 'R'));
             m.push(' ');
             b.push(STR);
             i += 1;
@@ -235,8 +242,13 @@ fn gather_def(
         let ochars: Vec<char> = olines[k].chars().collect();
         let flags = &blines[k];
 
+        // Skip leading whitespace using the ORIGINAL chars, not the masked
+        // ones: a continuation line whose content is entirely inside a string
+        // is masked to spaces, so skipping on `mchars` would discard the whole
+        // line (losing string defaults). Skipping on `ochars` stops at the
+        // first non-whitespace source char — be it code or string content.
         let mut j = 0;
-        while j < mchars.len() && mchars[j].is_whitespace() {
+        while j < ochars.len() && ochars[j].is_whitespace() {
             j += 1;
         }
 
@@ -545,6 +557,26 @@ mod tests {
         let s = sigs("def f():\n    LOCAL = 42\n    return LOCAL\n");
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].text, "def f():");
+    }
+
+    #[test]
+    fn multiline_triple_quoted_default_preserved() {
+        let s = sigs("def f(\n    x=\"\"\"\n    multi\n    \"\"\",\n) -> str:\n    return x\n");
+        assert_eq!(s[0].text, "def f(x=\"\"\" multi \"\"\") -> str:");
+    }
+
+    #[test]
+    fn multiline_string_collection_default_preserved() {
+        let s = sigs("def f(\n    items=[\n        \"a\",\n        \"b\",\n    ],\n) -> list:\n    pass\n");
+        assert_eq!(s[0].text, "def f(items=[\"a\", \"b\"]) -> list:");
+    }
+
+    #[test]
+    fn raw_two_char_prefix_string_closes() {
+        let s = sigs("def f(x=rb\"ends_with_backslash\\\"):\n    pass\n\ndef g() -> int:\n    return 1\n");
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].text, "def f(x=rb\"ends_with_backslash\\\"):");
+        assert_eq!(s[1].text, "def g() -> int:");
     }
 
     #[test]

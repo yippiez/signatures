@@ -73,7 +73,7 @@ enum Term {
 
 impl Language for BraceLang {
     fn extract(&self, source: &str) -> Vec<Signature> {
-        let masked = mask(source, self.lang);
+        let (masked, display) = mask(source, self.lang);
         let mut mvec: Vec<String> = masked.lines().map(|s| s.to_string()).collect();
         // Rust `extern "C" { … }` blocks are transparent: their `fn` items belong
         // to the enclosing scope, so blank the block braces to hoist them.
@@ -81,7 +81,9 @@ impl Language for BraceLang {
             neutralize_extern_blocks(&mut mvec);
         }
         let mlines: Vec<&str> = mvec.iter().map(|s| s.as_str()).collect();
-        let olines: Vec<&str> = source.lines().collect();
+        // Emit signature text from the comment-blanked display copy so inline /
+        // trailing comments inside a (possibly multi-line) header never leak.
+        let olines: Vec<&str> = display.lines().collect();
         let mut out = Vec::new();
         // Stack of enclosing brace blocks. `true` marks a function/other body
         // whose local `const`/`var`/`let` declarations must be suppressed;
@@ -101,8 +103,12 @@ impl Language for BraceLang {
             let decl_indent = stack.len();
 
             // Rust `macro_rules!` bodies contain template tokens (`fn $name()`),
-            // not real declarations — skip the whole definition.
-            if self.lang == Lang::Rust && trimmed.starts_with("macro_rules!") {
+            // and arbitrary brace-delimited macro invocations (`thread_local! {…}`,
+            // `lazy_static! {…}`, user macros) contain tokens that are not real
+            // declarations — skip the whole brace-delimited body in both cases.
+            if self.lang == Lang::Rust
+                && (trimmed.starts_with("macro_rules!") || is_macro_invocation_opener(trimmed))
+            {
                 let mut depth: i32 = 0;
                 let mut seen = false;
                 let mut k = i;
@@ -175,8 +181,9 @@ impl Language for BraceLang {
             let in_type_body = stack.last().copied() == Some(false);
             let mut pending: Option<bool> = None;
             if let Some((kind, text)) = classify(&header, term, self.lang, in_type_body) {
-                let suppress =
-                    kind == Kind::Constant && stack.last().copied().unwrap_or(false);
+                let in_fn_body = stack.last().copied().unwrap_or(false);
+                let suppress = in_fn_body
+                    && (kind == Kind::Constant || suppress_locals_in_fn_body(self.lang));
                 if !suppress {
                     out.push(Signature {
                         indent: decl_indent,
@@ -264,6 +271,48 @@ fn is_extern_block_opener(t: &str) -> bool {
     rest.trim() == "{"
 }
 
+/// Is `t` (a masked, left-trimmed Rust line) a brace-delimited macro invocation
+/// opener — `path::name! { … }`? Such a body holds macro tokens, not real
+/// declarations, so it is skipped wholesale. `macro_rules!` is handled separately.
+fn is_macro_invocation_opener(t: &str) -> bool {
+    let bang = match t.find('!') {
+        Some(b) => b,
+        None => return false,
+    };
+    let before = t[..bang].trim_end();
+    if before.is_empty() || before == "macro_rules" {
+        return false;
+    }
+    // The name before `!` must be a plain identifier path (idents and `::`).
+    if !before.chars().all(|c| is_ident_byte_char(c) || c == ':') {
+        return false;
+    }
+    t[bang + 1..].trim_start().starts_with('{')
+}
+
+/// Should locally-scoped declarations inside a function body be suppressed for
+/// this language? Items (`fn`/`struct`/`const` in Rust; nested `function`/arrow
+/// consts in TypeScript) declared inside a function body are implementation
+/// details, not API. JavaScript intentionally shows nested functions/classes, so
+/// it is excluded.
+fn suppress_locals_in_fn_body(lang: Lang) -> bool {
+    matches!(lang, Lang::Rust | Lang::Ts)
+}
+
+/// Is `core` (a masked, left-trimmed Ts line, modifiers stripped) a `module` /
+/// `global` block wrapper — `module 'foo' {`, `module Foo {`, `declare global {`?
+/// These act like `namespace` but their keywords are not class-introducers, so
+/// they need a dedicated check. Excludes `module.exports`, `module(`, `module =`.
+fn ts_module_wrapper(core: &str) -> bool {
+    let (kw, rest) = take_ident(core);
+    let r = rest.trim_start();
+    match kw {
+        "global" => r.starts_with('{') || r.is_empty(),
+        "module" => !r.is_empty() && !r.starts_with(['.', '(', '=', ',', ';', ':']),
+        _ => false,
+    }
+}
+
 /// Advance the block stack over `lines`, pushing on `{` and popping on `}`.
 /// When `body_tag` is `Some` and a net-new block was opened, tag that block.
 fn update_stack(stack: &mut Vec<bool>, lines: &[&str], body_tag: Option<bool>) {
@@ -312,12 +361,17 @@ fn go_group_block(
     let mut bdepth: i32 = 0; // brace depth (skip multi-line struct/interface bodies)
     let mut consumed = 0usize;
     let mut k = start;
+    // True while the previous member's value expression continues onto this line
+    // (it ended with a binary/continuation operator), so this line is not a new
+    // member.
+    let mut cont = false;
     while k < mlines.len() {
         consumed += 1;
         let raw = mlines[k];
-        // At group level (inside the parens, outside any member body), the
-        // leading identifier of a line names a member.
-        if depth >= 1 && bdepth == 0 {
+        // A new member begins only at the group's own paren level (`depth == 1`,
+        // not inside a nested call/composite literal), outside any struct body,
+        // and not while continuing the previous member's value.
+        if depth == 1 && bdepth == 0 && !cont {
             let t = raw.trim_start();
             if !t.starts_with(')') {
                 let (name, _) = take_ident(t);
@@ -330,11 +384,36 @@ fn go_group_block(
                         };
                         (Kind::Class, format!("type {}", collapse_ws(head)))
                     } else {
-                        (Kind::Constant, format!("{kw} {name} = …"))
+                        // `x [T] = v` elides the value; `var x T` (typed, no init)
+                        // keeps the type with no ` = …`; a bare `Name` (iota-style
+                        // const inheriting the previous initializer) still elides.
+                        let body = t.trim_end();
+                        let text = if let Some(eq) = find_top_eq(body) {
+                            format!("{kw} {} = …", collapse_ws(body[..eq].trim_end()))
+                        } else {
+                            let (nm, after) = take_ident(body.trim_start());
+                            if after.trim().is_empty() {
+                                format!("{kw} {nm} = …")
+                            } else {
+                                format!("{kw} {}", collapse_ws(body))
+                            }
+                        };
+                        (Kind::Constant, text)
                     };
                     out.push(Signature { indent, kind, text, line: k + 1 });
                 }
             }
+        }
+        // Does this line's value expression continue onto the next? (Only meaningful
+        // at group level; a trailing binary/continuation operator means "more".)
+        if depth == 1 && bdepth == 0 {
+            let tl = raw.trim_end();
+            cont = tl.ends_with(|c: char| {
+                matches!(
+                    c,
+                    '+' | '-' | '*' | '/' | '%' | '|' | '&' | '^' | '<' | '>' | '=' | ',' | '('
+                )
+            });
         }
         for c in raw.chars() {
             match c {
@@ -372,11 +451,17 @@ fn go_group_block(
 /// literal has its contents replaced by spaces (newlines preserved), so the
 /// structural scan only ever sees real code. Operates on chars to stay
 /// panic-free on arbitrary input.
-fn mask(source: &str, lang: Lang) -> String {
+/// Returns `(structural, display)`. `structural` has every comment and literal
+/// blanked (used by the scanner); `display` blanks only *comments* (string and
+/// literal contents are kept) and is the text emitted into signatures, so inline
+/// or trailing comments never leak into the gathered header.
+fn mask(source: &str, lang: Lang) -> (String, String) {
     let chars: Vec<char> = source.chars().collect();
     let n = chars.len();
     let mut out = String::with_capacity(source.len());
     let mut i = 0;
+    // Flat char-index spans of comments, blanked in the `display` copy below.
+    let mut comment_spans: Vec<(usize, usize)> = Vec::new();
 
     while i < n {
         let c = chars[i];
@@ -386,6 +471,7 @@ fn mask(source: &str, lang: Lang) -> String {
         // a backslash immediately before the newline splices the next line into
         // the comment (phase-2 line splicing), so keep blanking across it.
         if c == '/' && i + 1 < n && chars[i + 1] == '/' {
+            let cstart = i;
             loop {
                 let mut last_was_backslash = false;
                 while i < n && chars[i] != '\n' {
@@ -400,6 +486,7 @@ fn mask(source: &str, lang: Lang) -> String {
                 }
                 break;
             }
+            comment_spans.push((cstart, i));
             continue;
         }
         // PHP `#[Attr]` attribute: mask the balanced `#[ … ]` region (not to end
@@ -411,10 +498,12 @@ fn mask(source: &str, lang: Lang) -> String {
         }
         // PHP line comment `# ...`.
         if lang == Lang::Php && c == '#' {
+            let cstart = i;
             while i < n && chars[i] != '\n' {
                 out.push(' ');
                 i += 1;
             }
+            comment_spans.push((cstart, i));
             continue;
         }
         // PHP heredoc/nowdoc `<<<EOT … EOT` / `<<<'EOT' … EOT`: blank the body so
@@ -427,6 +516,7 @@ fn mask(source: &str, lang: Lang) -> String {
         }
         // Block comment `/* ... */`. In some langs these nest, tracked by depth.
         if c == '/' && i + 1 < n && chars[i + 1] == '*' {
+            let cstart = i;
             out.push(' ');
             out.push(' ');
             i += 2;
@@ -453,6 +543,7 @@ fn mask(source: &str, lang: Lang) -> String {
                 out.push(if chars[i] == '\n' { '\n' } else { ' ' });
                 i += 1;
             }
+            comment_spans.push((cstart, i));
             continue;
         }
 
@@ -617,7 +708,17 @@ fn mask(source: &str, lang: Lang) -> String {
         }
     }
 
-    out
+    // The display copy is the original source with only comment spans blanked
+    // (newlines preserved so it stays line-aligned with `out`).
+    let mut disp: Vec<char> = chars;
+    for (s, e) in comment_spans {
+        for d in disp.iter_mut().take(e).skip(s) {
+            if *d != '\n' {
+                *d = ' ';
+            }
+        }
+    }
+    (out, disp.into_iter().collect())
 }
 
 /// Blank a simple delimited literal starting at `start` (the opening delimiter).
@@ -997,16 +1098,36 @@ fn mask_annotation(chars: &[char], start: usize, out: &mut String) -> usize {
 /// preserving newlines.
 fn mask_text_block(chars: &[char], start: usize, delim: char, out: &mut String) -> usize {
     let n = chars.len();
-    out.push(' ');
-    out.push(' ');
-    out.push(' ');
-    let mut i = start + 3;
+    // Count the opening delimiter run. C# 11 raw strings use 3 *or more* quotes
+    // and must be closed by a run of at least that many; a shorter run inside the
+    // body (e.g. `"""` inside a `""""` literal) is content, not a terminator.
+    let mut open = 0;
+    while start + open < n && chars[start + open] == delim {
+        open += 1;
+    }
+    for _ in 0..open {
+        out.push(' ');
+    }
+    let mut i = start + open;
     while i < n {
-        if chars[i] == delim && i + 2 < n && chars[i + 1] == delim && chars[i + 2] == delim {
-            out.push(' ');
-            out.push(' ');
-            out.push(' ');
-            return i + 3;
+        if chars[i] == delim {
+            let mut run = 0;
+            while i + run < n && chars[i + run] == delim {
+                run += 1;
+            }
+            if run >= open {
+                // Closing delimiter: consume exactly `open` quotes (matching the
+                // opener); any extra are left as following code.
+                for _ in 0..open {
+                    out.push(' ');
+                }
+                return i + open;
+            }
+            for _ in 0..run {
+                out.push(' ');
+            }
+            i += run;
+            continue;
         }
         out.push(if chars[i] == '\n' { '\n' } else { ' ' });
         i += 1;
@@ -1148,6 +1269,10 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                 // would swallow the rest of the file).
                 '<' if paren <= 0
                     && !seen_top_eq
+                    // `<-` is not a generic opener (Go channel direction operator,
+                    // e.g. `chan<- T`); it would never balance and would swallow
+                    // the rest of the file.
+                    && mchars.get(j + 1) != Some(&'-')
                     && piece
                         .chars()
                         .last()
@@ -1359,7 +1484,7 @@ fn prefilter(t: &str, lang: Lang) -> bool {
     }
 
     let (_, core) = split_mods(t, lang);
-    let (kw, _) = take_ident(core);
+    let (kw, krest) = take_ident(core);
 
     // Java annotation-type declaration: `@interface Name`.
     if lang == Lang::Java && core.trim_start().starts_with("@interface") {
@@ -1368,9 +1493,20 @@ fn prefilter(t: &str, lang: Lang) -> bool {
 
     if !kw.is_empty() {
         if is_control(kw) {
-            return false;
+            // JS/TS: an operator-like keyword used as a *called* member name
+            // (`delete(id) {}`, `new(data) {}`) is a method, not a statement.
+            // Genuine statement keywords (`if`/`for`/…) are never method names.
+            let kw_call = matches!(lang, Lang::Js | Lang::Ts)
+                && !is_js_statement_keyword(kw)
+                && krest.trim_start().starts_with('(');
+            if !kw_call {
+                return false;
+            }
         }
         if class_keywords(lang).contains(&kw) {
+            return true;
+        }
+        if lang == Lang::Ts && ts_module_wrapper(core) {
             return true;
         }
         match lang {
@@ -1459,8 +1595,10 @@ fn prefilter(t: &str, lang: Lang) -> bool {
                 // Reject a bare control-flow statement (`if (...)`), but NOT a
                 // method whose name merely looks like a keyword (`Factory of(...)`,
                 // `T with(...)`) — those carry a return type / modifier prefix.
+                // JS/TS members may be *named* like keywords (`delete(id) {}`); let
+                // `classify` (which knows the enclosing body kind) decide those.
                 let prefix_empty = head[..head.len() - name.len()].trim().is_empty();
-                if !(is_control(name) && prefix_empty) {
+                if matches!(lang, Lang::Js | Lang::Ts) || !(is_control(name) && prefix_empty) {
                     return true;
                 }
             }
@@ -1496,6 +1634,16 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
     let (mods, core) = split_mods(h, lang);
     let (kw, rest) = take_ident(core);
 
+    // JS/TS object-literal property key that happens to be a reserved word
+    // (`{ function: 1 }`, `{ class: 2 }`, `{ const: 3 }`): a `:` directly after
+    // the keyword means it is a key, not a declaration.
+    if matches!(lang, Lang::Js | Lang::Ts)
+        && !kw.is_empty()
+        && rest.trim_start().starts_with(':')
+    {
+        return None;
+    }
+
     // Java annotation-type declaration: `@interface Name`.
     if lang == Lang::Java && core.trim_start().starts_with("@interface") {
         return Some((Kind::Class, class_text(h, lang)));
@@ -1517,6 +1665,10 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
 
     // Type / class-like declarations.
     if class_keywords(lang).contains(&kw) {
+        return Some((Kind::Class, class_text(h, lang)));
+    }
+    // TypeScript `module 'foo' {` / `declare global {` wrappers (namespace-like).
+    if lang == Lang::Ts && ts_module_wrapper(core) {
         return Some((Kind::Class, class_text(h, lang)));
     }
 
@@ -1566,6 +1718,11 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 if n2.is_empty() {
                     return None;
                 }
+                // A typed `var x T` with no initializer has nothing to elide —
+                // show it verbatim instead of fabricating a ` = …`.
+                if find_top_eq(h).is_none() {
+                    return Some((Kind::Constant, h.trim().to_string()));
+                }
                 return Some((Kind::Constant, const_text(h)));
             }
             if kw == "func" {
@@ -1573,7 +1730,9 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
             }
         }
         Lang::Js | Lang::Ts => {
-            if matches!(kw, "const" | "let" | "var") {
+            // `const`/`let`/`var` directly followed by `(` is a *method named*
+            // like the keyword (`const() {}`), not a declaration — fall through.
+            if matches!(kw, "const" | "let" | "var") && !rest.trim_start().starts_with('(') {
                 let r = rest.trim_start();
                 if r.is_empty() {
                     return None; // bare keyword / destructuring with no name
@@ -1585,13 +1744,27 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                         return Some((Kind::Class, class_text(h, lang)));
                     }
                 }
-                // Only an arrow whose `=>` is in the *value* is a function.
+                // A real arrow function has its `=>` at the *top* level of the
+                // value (`const f = (x) => …`).
                 if arrow_in_value(h) {
+                    return Some((Kind::Function, h.to_string()));
+                }
+                // A nested arrow that is NOT a parenthesized/IIFE expression
+                // (e.g. `const xs = arr.map(x => …)`) is shown verbatim as JS does
+                // for nested functions; a parenthesized arrow / IIFE
+                // (`const b = (() => {…})()`) is a computed constant, so its body
+                // is elided to `= …`.
+                let value = find_top_eq(h)
+                    .map(|e| h[e + 1..].trim_start())
+                    .unwrap_or("");
+                if h.contains("=>") && !value.starts_with('(') {
                     return Some((Kind::Function, h.to_string()));
                 }
                 return Some((Kind::Constant, const_text(h)));
             }
-            if kw == "function" {
+            // `function` followed by `(` / name is a function; `function(` shorthand
+            // is handled by the callable-shape path below.
+            if kw == "function" && !rest.trim_start().starts_with('(') {
                 return Some((Kind::Function, h.to_string()));
             }
         }
@@ -1756,12 +1929,32 @@ fn class_text(h: &str, lang: Lang) -> String {
     trimmed.to_string()
 }
 
-/// Does the assignment value (after the top-level `=`) contain an arrow `=>`?
+/// Is the assignment value an arrow function — i.e. is there a `=>` at the *top*
+/// bracket level of the value (after the top-level `=`)? An arrow nested inside
+/// parens (an IIFE `(() => {…})()`) makes the binding a computed value, not an
+/// arrow-function declaration, so it must not count.
 fn arrow_in_value(h: &str) -> bool {
-    match find_top_eq(h) {
-        Some(eq) => h[eq..].contains("=>"),
-        None => h.contains("=>"),
+    let value = match find_top_eq(h) {
+        Some(eq) => &h[eq + 1..],
+        None => h,
+    };
+    let b = value.as_bytes();
+    let mut depth: i32 = 0;
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            b'=' if depth == 0 && i + 1 < b.len() && b[i + 1] == b'>' => return true,
+            _ => {}
+        }
+        i += 1;
     }
+    false
 }
 
 /// Is `word` present in `h` as a whole word?
@@ -1827,6 +2020,18 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         }
     }
 
+    // C# value-tuple return type `(T1, T2) Name(params)`: the *first* `(` opens
+    // the return tuple, not the parameter list. Re-locate the parameter `(` (the
+    // one preceded by the method name) so `Name`/prefix are read correctly.
+    let head = if lang == Lang::CSharp {
+        match csharp_method_paren(h) {
+            Some(i) if i != idx => callable_head(h[..i].trim_end()),
+            _ => head,
+        }
+    } else {
+        head
+    };
+
     // TS optional member `name?()` — the `?` is not part of the name; read the
     // name (and prefix) from the head with a trailing `?` removed.
     let name_head = if lang == Lang::Ts {
@@ -1847,7 +2052,15 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     // A control keyword as the bare callable name is a statement (`if (...)`);
     // a method named like one (`Factory of(...)`) has a return-type prefix.
     if is_control(name) && prefix.is_empty() {
-        return false;
+        // In JS/TS, an operator-like keyword can *name* a `{`-bodied method
+        // (`delete(id) {}`, `new() {}`, `await() {}`). Genuine statement keywords
+        // (`if`/`for`/`while`/…) are reserved and never method names.
+        let js_method_name = matches!(lang, Lang::Js | Lang::Ts)
+            && term == Term::Brace
+            && !is_js_statement_keyword(name);
+        if !js_method_name {
+            return false;
+        }
     }
     // Member access (`obj.method(`) is a call expression, not a declaration.
     if prefix.ends_with('.') {
@@ -1860,12 +2073,31 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     // Reject expression/statement contexts. `.` and `,` are allowed inside
     // generic type arguments (Java `Map<String, Object>`, `java.util.List<E>`).
     let mut angle: i32 = 0;
+    let mut bracket: i32 = 0;
+    let mut paren: i32 = 0;
     for ch in prefix.chars() {
         match ch {
             '<' => angle += 1,
             '>' => {
                 if angle > 0 {
                     angle -= 1;
+                }
+            }
+            // An array-type return (`int[] Foo()`) has a *balanced* `[]`; an
+            // indexer/subscript (`dict[GetKey()] = …`) leaves an unbalanced `[`,
+            // which we reject after the loop.
+            '[' => bracket += 1,
+            ']' => {
+                if bracket > 0 {
+                    bracket -= 1;
+                }
+            }
+            // C# value-tuple return type carries balanced parens in the prefix
+            // (`(int, string) GetPair`); track them instead of rejecting.
+            '(' if lang == Lang::CSharp => paren += 1,
+            ')' if lang == Lang::CSharp => {
+                if paren > 0 {
+                    paren -= 1;
                 }
             }
             // `?` marks a nullable type in C#/TS (`int?`, `T?`), so it's allowed
@@ -1875,17 +2107,31 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
             _ => {}
         }
     }
+    // An unbalanced `[` means the `(` lives inside a subscript (`dict[f()]`),
+    // not a parameter list — reject.
+    if bracket > 0 {
+        return false;
+    }
     match lang {
         Lang::Js => term == Term::Brace,
         // TypeScript method overload signatures end with `;` and carry a return
-        // type annotation; accept those alongside `{`-bodied methods.
-        Lang::Ts => term == Term::Brace || (term == Term::Semi && has_return_annotation(h)),
+        // type annotation; accept those alongside `{`-bodied methods. A `set`
+        // accessor in an interface/type body (`set v(x: T);`) has no return
+        // annotation, so accept it by its `set` prefix too.
+        Lang::Ts => {
+            term == Term::Brace
+                || (term == Term::Semi && (has_return_annotation(h) || prefix == "set"))
+        }
         // Keyword-less, type-prefixed callables (definitions and prototypes).
         // A C++ member with no return type inside a class/struct body is a
         // constructor (`Foo(int)`), so allow an empty prefix there.
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Dart => {
             let prefix_ok = !prefix.is_empty() || (lang == Lang::Cpp && in_type_body);
-            prefix_ok && (term == Term::Brace || term == Term::Semi)
+            // A C# expression-bodied member whose `=>` ends the line and whose body
+            // is on the next line gathers with `Term::None`; accept the trailing
+            // `=>` as a valid (arrow-body) terminator.
+            let arrow_body = lang == Lang::CSharp && h.trim_end().ends_with("=>");
+            prefix_ok && (term == Term::Brace || term == Term::Semi || arrow_body)
         }
         _ => false,
     }
@@ -1901,7 +2147,12 @@ fn const_text(h: &str) -> String {
     if let Some(eq) = find_top_eq(h) {
         format!("{} = …", h[..eq].trim_end().trim())
     } else {
-        format!("{} = …", h.trim())
+        // No initializer: a trailing `:` is a dangling type annotation whose type
+        // was dropped (e.g. TS `declare const env: {…}`); strip it so the result
+        // is not `… : = …`.
+        let t = h.trim_end();
+        let t = t.strip_suffix(':').unwrap_or(t).trim_end();
+        format!("{} = …", t.trim())
     }
 }
 
@@ -2183,6 +2434,30 @@ fn is_control(w: &str) -> bool {
     )
 }
 
+/// JS/TS reserved statement keywords that can never be a member/method name (so
+/// `if (...) {`, `for (...) {` are statements, never methods). Operator-like
+/// keywords (`delete`, `new`, `in`, `of`, `with`, `await`, `yield`, …) are *not*
+/// here because they are legal property/method names.
+fn is_js_statement_keyword(w: &str) -> bool {
+    matches!(
+        w,
+        "if" | "else"
+            | "for"
+            | "while"
+            | "switch"
+            | "do"
+            | "try"
+            | "catch"
+            | "finally"
+            | "return"
+            | "throw"
+            | "case"
+            | "default"
+            | "break"
+            | "continue"
+    )
+}
+
 /// Take a leading identifier from `s` (after trimming), returning it and the
 /// rest of the string. Unicode-aware so non-ASCII identifiers (e.g. `ÜBER`,
 /// `話す`) are kept whole rather than read as empty.
@@ -2197,6 +2472,28 @@ fn take_ident(s: &str) -> (&str, &str) {
         }
     }
     (&s[..end], &s[end..])
+}
+
+/// For a C# header, the byte index of the parameter-list `(` — the first `(`
+/// that is immediately preceded by a method name (not a modifier/keyword and not
+/// an empty/grouping prefix). This skips a leading value-tuple return type
+/// `(T1, T2) Name(...)`, whose `(` would otherwise be mistaken for the params.
+fn csharp_method_paren(h: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(rel) = h[from..].find('(') {
+        let idx = from + rel;
+        let before = h[..idx].trim_end();
+        let name = trailing_ident(callable_head(before));
+        if !name.is_empty() && !is_control(name) && !is_modifier(name, Lang::CSharp) {
+            return Some(idx);
+        }
+        // Treat this `(` as a grouping/tuple; skip past its matching `)`.
+        match matched_paren_end(&h[idx..]) {
+            Some(end) => from = idx + end,
+            None => return None,
+        }
+    }
+    None
 }
 
 /// The portion of a pre-`(` header up to (and excluding) a trailing generic
@@ -2519,6 +2816,124 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].text, "int real(void)");
         assert_eq!(s[0].line, 3);
+    }
+
+    #[test]
+    fn rust_macro_invocation_body_suppressed() {
+        let src = "my_macro! {\n    fn fake() {}\n    const FAKE: u32 = 42;\n}\nfn real() {}\n";
+        let s = sigs(Lang::Rust, src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "fn real()");
+    }
+
+    #[test]
+    fn rust_local_items_in_fn_body_suppressed() {
+        let src = "pub fn outer() -> i32 {\n    struct L { x: i32 }\n    fn inner() -> i32 { 42 }\n    0\n}\n";
+        let s = sigs(Lang::Rust, src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "pub fn outer() -> i32");
+    }
+
+    #[test]
+    fn go_typed_var_no_init_keeps_type() {
+        let s = sigs(Lang::Go, "package m\n\nvar counter int\n\nfunc After() {}\n");
+        assert_eq!(s[0].text, "var counter int");
+        assert_eq!(s[1].text, "func After()");
+    }
+
+    #[test]
+    fn go_send_chan_type() {
+        let s = sigs(Lang::Go, "package m\n\ntype SendChan chan<- string\n\nfunc After() {}\n");
+        assert_eq!(s[0].text, "type SendChan chan<- string");
+        assert_eq!(s[1].text, "func After()");
+    }
+
+    #[test]
+    fn go_grouped_var_keeps_types() {
+        let src = "package m\n\nvar (\n\tA int\n\tB string\n)\n";
+        let s = sigs(Lang::Go, src);
+        assert_eq!(s[0].text, "var A int");
+        assert_eq!(s[1].text, "var B string");
+    }
+
+    #[test]
+    fn ts_set_accessor_in_interface() {
+        let src = "interface W {\n  get value(): number;\n  set value(v: number);\n}\n";
+        let s = sigs(Lang::Ts, src);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[2].text, "set value(v: number)");
+    }
+
+    #[test]
+    fn ts_declare_module_and_global() {
+        let src = "declare module 'foo' {\n  function bar(): void;\n}\ndeclare global {\n  function baz(): void;\n}\n";
+        let s = sigs(Lang::Ts, src);
+        assert_eq!(s[0].text, "declare module 'foo'");
+        assert_eq!(s[1].text, "function bar(): void");
+        assert_eq!(s[2].text, "declare global");
+    }
+
+    #[test]
+    fn ts_local_function_suppressed() {
+        let src = "export function outer(): void {\n  function inner(): void {}\n}\n";
+        let s = sigs(Lang::Ts, src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "export function outer(): void");
+    }
+
+    #[test]
+    fn ts_comment_does_not_leak() {
+        let s = sigs(Lang::Ts, "export type /* x */ Foo = string;\n");
+        assert_eq!(s[0].text, "export type Foo = string");
+    }
+
+    #[test]
+    fn js_keyword_method_names() {
+        let src = "class R {\n  delete(id) {}\n  new(d) {}\n  normalMethod() {}\n}\n";
+        let s = sigs(Lang::Js, src);
+        let names: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert!(names.contains(&"delete(id)"));
+        assert!(names.contains(&"new(d)"));
+        assert!(names.contains(&"normalMethod()"));
+    }
+
+    #[test]
+    fn js_keyword_property_key_not_member() {
+        let s = sigs(Lang::Js, "const obj = {\n  function: 1,\n  const: 2,\n};\n");
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "const obj = …");
+    }
+
+    #[test]
+    fn js_arrow_iife_is_constant() {
+        let s = sigs(Lang::Js, "const b = (() => {\n  return 42;\n})();\n");
+        assert_eq!(s[0].text, "const b = …");
+    }
+
+    #[test]
+    fn csharp_indexer_assignment_not_decl() {
+        let src = "public class C\n{\n    public void Foo()\n    {\n        dict[GetKey()] = 1;\n    }\n    public void Good() {}\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let names: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert!(!names.iter().any(|t| t.contains("dict[")));
+        assert!(names.contains(&"public void Good()"));
+    }
+
+    #[test]
+    fn csharp_multiline_arrow_method() {
+        let src = "class C\n{\n    public int M(int n) =>\n        n + 1;\n    public void After() {}\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let names: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert!(names.contains(&"public int M(int n)"));
+    }
+
+    #[test]
+    fn csharp_tuple_return_type() {
+        let src = "class B\n{\n    public (int Count, string Name) GetStats() => (0, \"x\");\n    public (int, string) GetPair(int n) { return (n, \"x\"); }\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let names: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert!(names.contains(&"public (int Count, string Name) GetStats()"));
+        assert!(names.contains(&"public (int, string) GetPair(int n)"));
     }
 
     #[test]

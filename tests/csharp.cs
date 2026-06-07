@@ -757,3 +757,29 @@ public class A {
     public string? Find(int id) { return null; }
     public void Normal() { }
 }
+@@CASE@@ indexer_assignment_subscript
+public class C
+{
+    public void Foo()
+    {
+        dict[GetKey()] = 1;
+    }
+    public void Good() {}
+}
+@@CASE@@ multiline_arrow_method
+public class A
+{
+    public int MultilineArrow(int n) =>
+        n + 1;
+
+    public void After() { }
+}
+@@CASE@@ tuple_return_type
+public class B
+{
+    public (int Count, string Name) GetStats() => (0, "test");
+
+    public (int, string) GetPair(int n) { return (n, "x"); }
+
+    public void After() { }
+}

@@ -261,3 +261,21 @@ interface Plugin
   withReturn?(): string
 type A = { a: string } & { b: number }
 function after(): void
+@@CASE@@ set_accessor_in_interface
+interface WithSetter
+  get value(): number
+  set value(v: number)
+@@CASE@@ declare_module_and_global
+declare module 'foo'
+  function bar(): void
+declare global
+  function baz(): void
+@@CASE@@ declare_const_object_type
+declare const env = …
+@@CASE@@ comment_leak_in_signature
+export type Foo = string
+export function bar(): void
+@@CASE@@ local_function_suppressed
+export function outer(): void
+export class Foo
+  bar(): string[]

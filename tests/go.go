@@ -610,3 +610,36 @@ package main
 var s = `x\`
 
 func Invisible() {}
+@@CASE@@ send_chan_type
+package main
+
+type SendChan chan<- string
+
+func After() {}
+@@CASE@@ typed_var_no_init
+package main
+
+var counter int
+
+func After() {}
+@@CASE@@ grouped_var_types
+package main
+
+var (
+	MaxRetries int
+	BaseURL    string
+	Enabled    bool
+)
+
+func Real() {}
+@@CASE@@ group_value_continuation
+package fuzz
+
+const (
+	X = 1 +
+		2
+
+	Y = 42
+)
+
+func After() {}

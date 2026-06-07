@@ -4,6 +4,7 @@ namespace Demo.CommentsStrings
     private const string HelpText = …
     private static readonly string SqlQuery = …
     private static readonly string RawLiteral = …
+    public string Describe(int n)
     public void RealMethod()
     public const int RealConst = …
   public interface IRealInterface
@@ -14,6 +15,8 @@ namespace Demo.CommentsStrings
     public RealStruct(int value)
     public override string ToString()
   public static class StringHelper
+    public static string Repeat(string s, int times)
+    public static bool Contains(string haystack, string needle)
 @@CASE@@ Edge
 namespace Edge
   public class LegacyClass
@@ -60,12 +63,14 @@ namespace Demo.Generics
   public class InMemoryRepository<TEntity, TKey> : IRepository<TEntity, TKey>
     public const int InitialCapacity = …
     public InMemoryRepository(Func<TEntity, TKey> keySelector)
+    public TEntity? FindById(TKey id)
     public IEnumerable<TEntity> FindAll()
     public void Save(TEntity entity)
     public bool Delete(TKey id)
   public sealed class Pipeline<TIn, TOut>
     private Pipeline(Func<TIn, TOut> step)
     public static Pipeline<TIn, TIn> Start()
+    public Pipeline<TIn, TNext> Then<TNext>(Func<TOut, TNext> next)
     public TOut Run(TIn input)
   public static class GenericExtensions
     public static TResult ApplyOrDefault<TSource, TResult>(this TSource? source, Func<TSource, TResult> selector, TResult defaultValue)
@@ -73,6 +78,7 @@ namespace Demo.Generics
     public static void ForEach<T>(this IEnumerable<T> source, Action<T> action)
     public static TAccum Fold<TItem, TAccum>(this IEnumerable<TItem> source, TAccum seed, Func<TAccum, TItem, TAccum> accumulator)
   public static class ComparerFactory
+    public static IComparer<T> Create<T>(Func<T, T, int> compare)
     public static IComparer<T> ByKey<T, TKey>(Func<T, TKey> keySelector)
   public enum SortDirection
   public delegate TResult Transformer<TIn, TOut, TResult>(TIn input, TOut context)
@@ -172,6 +178,7 @@ namespace 日本語.名前空間
     bool 存在する(string クエリ)
   public static class テキストヘルパー
     public const string 改行 = …
+    public static string 繰り返す(string text, int 回数)
 @@CASE@@ expression_bodies
 class Calc
   public int Add(int a, int b)
@@ -207,3 +214,16 @@ public class A
   public int? Method()
   public string? Find(int id)
   public void Normal()
+@@CASE@@ indexer_assignment_subscript
+public class C
+  public void Foo()
+  public void Good()
+@@CASE@@ multiline_arrow_method
+public class A
+  public int MultilineArrow(int n)
+  public void After()
+@@CASE@@ tuple_return_type
+public class B
+  public (int Count, string Name) GetStats()
+  public (int, string) GetPair(int n)
+  public void After()

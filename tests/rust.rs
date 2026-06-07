@@ -839,3 +839,16 @@ pub fn café_name() -> &'static str {
     // This string contains fake keywords — must be ignored.
     "fn not_real() inside a café name string; struct AlsoFake;"
 }
+@@CASE@@ macro_invocation_body_suppressed
+my_macro! {
+    fn fake() {}
+    const FAKE: u32 = 42;
+    static S: &str = "hi";
+}
+fn real() {}
+@@CASE@@ local_items_in_fn_body_suppressed
+pub fn outer() -> i32 {
+    struct LocalStruct { x: i32 }
+    fn local_fn() -> i32 { 42 }
+    LocalStruct { x: local_fn() }.x
+}
