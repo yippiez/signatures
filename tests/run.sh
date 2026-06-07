@@ -3,18 +3,22 @@
 # tests/run.sh — run the `signatures` CLI against every fixture under tests/
 # and check its output, language by language.
 #
-# Fixtures live in one of two forms under tests/<lang>/:
+# Every fixture file lives directly under tests/ (no per-language subfolders),
+# in one of two forms:
 #
-#   1. A merged case file  tests/<lang>/cases.<ext>  holding many cases, each
+#   1. A merged case file  tests/<lang>.<ext>  holding many cases, each
 #      introduced by a marker line  "@@CASE@@ <name>"  followed by that case's
-#      source. The expected output lives in tests/<lang>/cases.<ext>.expected
-#      using the SAME markers. Each case is run in isolation (its own binary
-#      invocation), so they cannot interfere — yet the file count never grows as
-#      cases are added. This is the primary form.
+#      source. The expected output lives in tests/<lang>.<ext>.expected using the
+#      SAME markers. Each case is run in isolation (its own binary invocation),
+#      so they cannot interfere — yet the file count never grows as cases are
+#      added. This is the primary form (e.g. tests/rust.rs).
 #
-#   2. A loose fixture  tests/<lang>/<name>.<ext>  with a sibling snapshot
-#      tests/<lang>/<name>.<ext>.expected. Kept for byte-sensitive cases (e.g. a
-#      leading UTF-8 BOM) that a line-merged file cannot represent faithfully.
+#   2. A loose fixture  tests/<name>.<ext>  with a sibling snapshot
+#      tests/<name>.<ext>.expected, and NO @@CASE@@ markers. Kept for
+#      byte-sensitive cases (e.g. a leading UTF-8 BOM) that a line-merged file
+#      cannot represent faithfully (e.g. tests/rust_bom.rs).
+#
+# A file is treated as merged iff it contains a @@CASE@@ marker, else loose.
 #
 # For every case the runner runs  signatures --no-color <case>  and compares
 # stdout to its expected snapshot.
@@ -60,7 +64,11 @@ if [ -t 1 ]; then G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; D=$'\e[2m'; Z=$'\e[0m';
 want() {
   [ ${#FILTERS[@]} -eq 0 ] && return 0
   local lang="$1" f
-  for f in "${FILTERS[@]}"; do [ "$f" = "$lang" ] && return 0; done
+  for f in "${FILTERS[@]}"; do
+    [ "$f" = "$lang" ] && return 0
+    # A loose fixture named "<lang>_<suffix>" matches a "<lang>" filter.
+    [ "${lang%%_*}" = "$f" ] && return 0
+  done
   return 1
 }
 
@@ -148,30 +156,22 @@ process_merged() {
   done
 }
 
-# Walk language folders.
-for dir in "$ROOT"/tests/*/; do
-  [ -d "$dir" ] || continue
-  lang="$(basename "$dir")"
+# Walk every fixture file directly under tests/.
+while IFS= read -r f; do
+  [ -e "$f" ] || continue
+  base="$(basename "$f")"
+  lang="${base%.*}"                                # strip extension
   want "$lang" || continue
-
-  # Merged case files first.
-  while IFS= read -r mf; do
-    [ -e "$mf" ] || continue
-    process_merged "$mf"
-  done < <(find "$dir" -maxdepth 1 -type f -name 'cases.*' ! -name '*.expected' | sort)
-
-  # Then any loose fixtures (byte-sensitive cases, etc.).
-  while IFS= read -r f; do
-    [ -e "$f" ] || continue
-    base="$(basename "$f")"
-    [ "${base#cases.}" != "$base" ] && continue   # skip cases.* (handled above)
+  if grep -q "$MARKER" "$f" 2>/dev/null; then
+    process_merged "$f"                            # has @@CASE@@ markers
+  else
     rel="${f#"$ROOT"/}"
     exp="$f.expected"
     [ -f "$exp" ] || exp=""
-    check_case "$rel" "$f" "$exp"
-  done < <(find "$dir" -maxdepth 1 -type f \
-    ! -name '*.expected' ! -name '*.txt' ! -name '*.md' | sort)
-done
+    check_case "$rel" "$f" "$exp"                  # loose single-case fixture
+  fi
+done < <(find "$ROOT/tests" -maxdepth 1 -type f \
+  ! -name '*.expected' ! -name '*.txt' ! -name '*.md' ! -name 'run.sh' | sort)
 
 echo
 if [ "$RECORD" -eq 1 ]; then
