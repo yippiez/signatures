@@ -15,6 +15,7 @@ abstract class Shape
 mixin Serializable
   Map<String, dynamic> toJson()
   String toJsonString()
+  static T? tryParse<T>(String json, T Function(Map<String, dynamic>) fromJson)
 mixin Cacheable
   String get cacheKey
   Duration get cacheTtl
@@ -101,7 +102,9 @@ typedef Json = Map<String, dynamic>
 extension StringX on String
   bool get isBlank
   String capitalize()
+  int? toIntOrNull()
 extension ListX<T> on List<T>
+  T? firstOrNull()
   List<T> separated(T separator)
 class Dangling
   final int x = …
@@ -128,12 +131,15 @@ class BoundedStack<T>
   final int capacity = …
   final List<T> _data = …
   bool push(T item)
+  T? pop()
+  T? peek()
   bool get isFull
   bool get isEmpty
   int get size
 class LruCache<K, V>
   final int maxSize = …
   final LinkedHashMap<K, V> _map = …
+  V? get(K key)
   void put(K key, V value)
   bool containsKey(K key)
   int get length
@@ -144,6 +150,7 @@ class TreeNode<T>
 T identity<T>(T value)
 Pair<A, B> zip<A, B>(A a, B b)
 List<B> mapList<A, B>(List<A> items, B Function(A) f)
+R? tryCatch<R>(R Function() block)
 T maxOf<T extends Comparable<T>>(T a, T b)
 List<T> flatten<T>(List<List<T>> nested)
 abstract class Repository<T, ID extends Comparable<ID>>
@@ -184,6 +191,7 @@ class Container<T extends Comparable<T>>
   final List<T> _items = …
   static const int defaultCapacity = …
   void add(T item)
+  T? find(bool Function(T) predicate)
   int get length
   bool get isEmpty
   class View<U>
@@ -290,3 +298,10 @@ interface class Drawable
 final class Config
   final int x = …
 final answer = …
+@@CASE@@ nullable_returns_and_index_assign
+class A
+  String? foo()
+  void bar()
+  dynamic operator [](String key)
+  void operator []=(String key, dynamic value)
+String? lookup(String key)

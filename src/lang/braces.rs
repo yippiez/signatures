@@ -1898,7 +1898,13 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
     ) && looks_like_function(h, lang, term, in_type_body)
     {
-        let text = if lang == Lang::Cpp { cpp_fn_text(h) } else { fn_text(h) };
+        // C++/Dart cut a body `=` only AFTER the parameter list, so an operator
+        // name with `=` (`operator []=`) is preserved (fn_text would cut at it).
+        let text = if matches!(lang, Lang::Cpp | Lang::Dart) {
+            cpp_fn_text(h)
+        } else {
+            fn_text(h)
+        };
         return Some((Kind::Function, text));
     }
 
@@ -2100,9 +2106,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
                     paren -= 1;
                 }
             }
-            // `?` marks a nullable type in C#/TS (`int?`, `T?`), so it's allowed
-            // in a return-type prefix there; elsewhere it signals a ternary.
-            '?' if angle == 0 && !matches!(lang, Lang::CSharp | Lang::Ts) => return false,
+            // `?` marks a nullable type in C#/TS/Dart (`int?`, `T?`), so it's
+            // allowed in a return-type prefix there; elsewhere it signals a ternary.
+            '?' if angle == 0 && !matches!(lang, Lang::CSharp | Lang::Ts | Lang::Dart) => {
+                return false
+            }
             '=' | '(' | ')' | '{' | '}' | ';' | '@' if angle == 0 => return false,
             _ => {}
         }
@@ -2609,7 +2617,12 @@ fn operator_token_end(chars: &[char], start: usize) -> usize {
     if (c == '(' && i + 1 < n && chars[i + 1] == ')')
         || (c == '[' && i + 1 < n && chars[i + 1] == ']')
     {
-        return i + 2;
+        let mut e = i + 2;
+        // Assignment forms `operator[]=` (Dart/C++): include a single trailing `=`.
+        if e < n && chars[e] == '=' && !(e + 1 < n && chars[e + 1] == '=') {
+            e += 1;
+        }
+        return e;
     }
     // Conversion / named operator (`operator bool`, `operator new`, `delete`).
     if c == '_' || c.is_alphabetic() {
@@ -3286,6 +3299,19 @@ mod tests {
         let s = sigs(Lang::CSharp, src);
         let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["public class A", "public int? Method()", "public string? Find(int id)"]);
+    }
+
+    #[test]
+    fn dart_nullable_returns_and_index_assign() {
+        // `Type?` returns must be detected (and not leak their block body); the
+        // `operator []=` name must keep its `=` and params.
+        let src = "class A {\n  String? foo() {\n    final x = 42;\n    return null;\n  }\n  void operator []=(String k, int v) {}\n}\nString? lookup(String k) { return null; }\n";
+        let s = sigs(Lang::Dart, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["class A", "String? foo()", "void operator []=(String k, int v)", "String? lookup(String k)"]
+        );
     }
 
     #[test]

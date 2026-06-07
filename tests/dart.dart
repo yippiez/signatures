@@ -865,3 +865,16 @@ final class Config {
   final int x = 0;
 }
 final answer = 42;
+@@CASE@@ nullable_returns_and_index_assign
+class A {
+  String? foo() {
+    final x = 42;
+    return null;
+  }
+  void bar() {}
+  dynamic operator [](String key) => null;
+  void operator []=(String key, dynamic value) {}
+}
+String? lookup(String key) {
+  return null;
+}
