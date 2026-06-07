@@ -6,6 +6,7 @@ trait Monad[F[_]] extends Functor[F]
 trait Ordering[A]
   def compare(x: A, y: A): Int
   def lt(x: A, y: A): Boolean
+  def gt(x: A, y: A): Boolean
 class SortedList[A: Ordering]
   private val underlying: mutable.ArrayBuffer[A] = …
   def add(elem: A): Unit

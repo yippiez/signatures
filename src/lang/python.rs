@@ -1,62 +1,66 @@
 //! Heuristic, dependency-free Python signature extractor.
 //!
-//! This is a forward line scanner, not a real parser. It tracks triple-quoted
-//! string state (so `def`/`class` text inside docstrings is ignored) and uses
-//! indentation to compute nesting levels. Pathological inputs may be
-//! mis-handled; that is an accepted trade-off for the zero-dependency goal.
+//! This is a forward line scanner, not a real parser. Source is first masked —
+//! comments and string literals (single/double/triple, with escapes and raw
+//! prefixes) are blanked so their contents never look like declarations — and
+//! the structural scan then runs over the masked text while declaration text is
+//! emitted from the original source (so string defaults survive verbatim).
+//! Indentation determines nesting; constants inside a function body are dropped.
+//! Pathological inputs may be mis-handled; that is an accepted trade-off for the
+//! zero-dependency goal. The scanner never panics and operates on whole `char`s.
 
 use super::Language;
 use crate::signature::{Kind, Signature};
+
+/// Per-character classification produced by masking.
+const CODE: u8 = 0;
+const STR: u8 = 1;
+const COMMENT: u8 = 2;
 
 pub struct PythonLang;
 
 impl Language for PythonLang {
     fn extract(&self, source: &str) -> Vec<Signature> {
-        let lines: Vec<&str> = source.lines().collect();
+        let olines: Vec<&str> = source.lines().collect();
+        let (mlines, blines) = mask_all(&olines);
+
         let mut out = Vec::new();
-        // Current open triple-quote delimiter, if we are inside a string.
-        let mut triple: Option<&'static str> = None;
-        // Stack of indent widths of enclosing declarations, for nesting levels.
-        let mut stack: Vec<usize> = Vec::new();
+        // Stack of (indent width, is_function_body) for enclosing declarations.
+        let mut stack: Vec<(usize, bool)> = Vec::new();
         let mut i = 0;
 
-        while i < lines.len() {
-            let raw = lines[i];
-            let line_no = i + 1;
-
-            // Advance string state for this line; skip lines that begin inside
-            // a triple-quoted string.
-            if update_triple(raw, &mut triple) {
+        while i < olines.len() {
+            let mstripped = mlines[i].trim_start();
+            if mstripped.is_empty() {
                 i += 1;
                 continue;
             }
 
-            let indent_width = leading_width(raw);
-            let stripped = raw.trim_start();
+            let indent_width = leading_width(olines[i]);
+            let line_no = i + 1;
 
-            let kind = if stripped.starts_with("def ") || stripped.starts_with("async def ") {
-                Some(Kind::Function)
-            } else if stripped.starts_with("class ") {
-                Some(Kind::Class)
-            } else {
-                None
-            };
-
-            if let Some(kind) = kind {
-                let (text, consumed) = gather_def(&lines, i);
-                let level = push_level(&mut stack, indent_width);
+            if let Some(kind) = def_kind(mstripped) {
+                let (text, consumed) = gather_def(&mlines, &olines, &blines, i);
+                let level = push_level(&mut stack, indent_width, kind == Kind::Function);
                 out.push(Signature { indent: level, kind, text, line: line_no });
-                // Keep string state consistent across the lines we swallowed.
-                for j in (i + 1)..(i + consumed) {
-                    update_triple(lines[j], &mut triple);
-                }
                 i += consumed;
                 continue;
             }
 
-            if let Some(text) = constant_sig(stripped) {
-                let level = push_level(&mut stack, indent_width);
-                out.push(Signature { indent: level, kind: Kind::Constant, text, line: line_no });
+            if let Some(text) = constant_sig(mstripped, olines[i].trim_start()) {
+                // A constant is only a module/class attribute, never a local: pop
+                // exited scopes and suppress it if it sits inside a function body.
+                pop_to(&mut stack, indent_width);
+                let suppress = stack.last().map_or(false, |&(_, is_fn)| is_fn);
+                if !suppress {
+                    let level = stack.len();
+                    out.push(Signature {
+                        indent: level,
+                        kind: Kind::Constant,
+                        text,
+                        line: line_no,
+                    });
+                }
             }
 
             i += 1;
@@ -79,201 +83,354 @@ fn leading_width(line: &str) -> usize {
     w
 }
 
-/// Given the indent width of a new declaration, pop deeper/equal entries off the
-/// stack, return the resulting nesting level, and record this declaration.
-fn push_level(stack: &mut Vec<usize>, width: usize) -> usize {
-    while let Some(&top) = stack.last() {
+/// Pop stack entries at or deeper than `width` (their scopes have been exited).
+fn pop_to(stack: &mut Vec<(usize, bool)>, width: usize) {
+    while let Some(&(top, _)) = stack.last() {
         if top >= width {
             stack.pop();
         } else {
             break;
         }
     }
+}
+
+/// Pop exited scopes, return the nesting level for a declaration at `width`, and
+/// push it (recording whether it introduces a function body).
+fn push_level(stack: &mut Vec<(usize, bool)>, width: usize, is_func: bool) -> usize {
+    pop_to(stack, width);
     let level = stack.len();
-    stack.push(width);
+    stack.push((width, is_func));
     level
 }
 
-/// Update triple-quote string state for one line. Returns `true` if the line
-/// *began* inside a triple-quoted string (and should therefore be ignored).
-/// Operates on bytes to stay panic-free on non-ASCII input.
-fn update_triple(line: &str, state: &mut Option<&'static str>) -> bool {
-    let began_inside = state.is_some();
-    let b = line.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        match *state {
-            Some(delim) => {
-                let d = delim.as_bytes();
-                if i + 3 <= b.len() && &b[i..i + 3] == d {
-                    *state = None;
-                    i += 3;
-                } else {
-                    i += 1;
-                }
-            }
-            None => {
-                if i + 3 <= b.len() && &b[i..i + 3] == b"\"\"\"" {
-                    *state = Some("\"\"\"");
-                    i += 3;
-                } else if i + 3 <= b.len() && &b[i..i + 3] == b"'''" {
-                    *state = Some("'''");
-                    i += 3;
-                } else if b[i] == b'#' {
-                    // Rest of the line is a comment; stop scanning.
-                    break;
-                } else {
-                    i += 1;
-                }
-            }
-        }
+/// Classify a masked, left-trimmed line as the start of a `def`/`class`.
+/// Tolerates extra whitespace (`async   def`).
+fn def_kind(stripped: &str) -> Option<Kind> {
+    let mut it = stripped.split_whitespace();
+    match it.next() {
+        Some("def") => Some(Kind::Function),
+        Some("class") => Some(Kind::Class),
+        Some("async") if it.next() == Some("def") => Some(Kind::Function),
+        _ => None,
     }
-    began_inside
 }
 
-/// Collect a `def`/`class` declaration starting at `start`, joining any
-/// continuation lines until the parameter parentheses balance and the
-/// signature-terminating colon is found. Returns the normalized text (with a
-/// trailing `:`, body dropped) and the number of lines consumed.
-fn gather_def(lines: &[&str], start: usize) -> (String, usize) {
+/// Mask every source line, carrying triple-quoted string state across lines.
+/// Returns the masked lines and a per-char classification (`CODE`/`STR`/
+/// `COMMENT`) aligned 1:1 with each original line's chars.
+fn mask_all(olines: &[&str]) -> (Vec<String>, Vec<Vec<u8>>) {
+    let mut triple: Option<[char; 3]> = None;
+    let mut mlines = Vec::with_capacity(olines.len());
+    let mut blines = Vec::with_capacity(olines.len());
+    for line in olines {
+        let (m, b) = mask_line(line, &mut triple);
+        mlines.push(m);
+        blines.push(b);
+    }
+    (mlines, blines)
+}
+
+/// Mask one line. `triple` carries an open triple-quote delimiter across lines.
+fn mask_line(line: &str, triple: &mut Option<[char; 3]>) -> (String, Vec<u8>) {
+    let cs: Vec<char> = line.chars().collect();
+    let n = cs.len();
+    let mut m = String::with_capacity(n);
+    let mut b = Vec::with_capacity(n);
+    let mut i = 0;
+
+    while i < n {
+        if let Some(delim) = *triple {
+            if i + 3 <= n && cs[i] == delim[0] && cs[i + 1] == delim[1] && cs[i + 2] == delim[2] {
+                *triple = None;
+                for _ in 0..3 {
+                    m.push(' ');
+                    b.push(STR);
+                }
+                i += 3;
+            } else {
+                m.push(' ');
+                b.push(STR);
+                i += 1;
+            }
+            continue;
+        }
+
+        let c = cs[i];
+        if c == '#' {
+            while i < n {
+                m.push(' ');
+                b.push(COMMENT);
+                i += 1;
+            }
+            break;
+        }
+
+        // Triple-quoted string opener (checked before single quotes).
+        if i + 3 <= n
+            && ((cs[i] == '"' && cs[i + 1] == '"' && cs[i + 2] == '"')
+                || (cs[i] == '\'' && cs[i + 1] == '\'' && cs[i + 2] == '\''))
+        {
+            *triple = Some([cs[i], cs[i], cs[i]]);
+            for _ in 0..3 {
+                m.push(' ');
+                b.push(STR);
+            }
+            i += 3;
+            continue;
+        }
+
+        // Single/double-quoted single-line string.
+        if c == '"' || c == '\'' {
+            let raw = i > 0 && matches!(cs[i - 1], 'r' | 'R');
+            m.push(' ');
+            b.push(STR);
+            i += 1;
+            while i < n {
+                let cc = cs[i];
+                if cc == '\\' && !raw && i + 1 < n {
+                    m.push(' ');
+                    b.push(STR);
+                    m.push(' ');
+                    b.push(STR);
+                    i += 2;
+                    continue;
+                }
+                m.push(' ');
+                b.push(STR);
+                i += 1;
+                if cc == c {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        m.push(c);
+        b.push(CODE);
+        i += 1;
+    }
+
+    (m, b)
+}
+
+/// Collect a `def`/`class` declaration starting at `start`, joining continuation
+/// lines until the parameter brackets balance and the signature-terminating `:`
+/// is found at top level. Structure is read from the masked lines; the emitted
+/// text is taken from the original source (string contents preserved). Returns
+/// the normalized text (trailing `:`, body dropped) and lines consumed.
+fn gather_def(
+    mlines: &[String],
+    olines: &[&str],
+    blines: &[Vec<u8>],
+    start: usize,
+) -> (String, usize) {
     let mut depth: i32 = 0;
-    let mut pieces: Vec<String> = Vec::new();
+    let mut seq: Vec<(char, bool)> = Vec::new();
     let mut consumed = 0;
     let mut done = false;
 
-    for k in start..lines.len() {
+    for k in start..mlines.len() {
         consumed += 1;
-        let src = if k == start {
-            lines[k].trim_start()
-        } else {
-            lines[k].trim()
-        };
+        let mchars: Vec<char> = mlines[k].chars().collect();
+        let ochars: Vec<char> = olines[k].chars().collect();
+        let flags = &blines[k];
 
-        let mut piece = String::new();
-        for c in src.chars() {
-            match c {
+        let mut j = 0;
+        while j < mchars.len() && mchars[j].is_whitespace() {
+            j += 1;
+        }
+
+        while j < mchars.len() {
+            let mc = mchars[j];
+            match mc {
                 '(' | '[' | '{' => {
                     depth += 1;
-                    piece.push(c);
+                    seq.push((ochars[j], false));
+                    j += 1;
                 }
                 ')' | ']' | '}' => {
                     if depth > 0 {
                         depth -= 1;
                     }
-                    piece.push(c);
+                    seq.push((ochars[j], false));
+                    j += 1;
                 }
                 ':' if depth <= 0 => {
                     done = true;
                     break;
                 }
-                '#' if depth <= 0 => break,
-                _ => piece.push(c),
+                _ => {
+                    match flags.get(j).copied().unwrap_or(CODE) {
+                        COMMENT => {} // drop comment text entirely
+                        STR => seq.push((ochars[j], true)),
+                        _ => seq.push((ochars[j], false)),
+                    }
+                    j += 1;
+                }
             }
         }
 
-        let piece = piece.trim_end().to_string();
-        if !piece.is_empty() {
-            pieces.push(piece);
+        // Drop trailing code whitespace and an explicit `\` line continuation.
+        while seq.last().map_or(false, |&(c, s)| !s && c.is_whitespace()) {
+            seq.pop();
         }
-        if done || k - start > 100 {
+        if seq.last() == Some(&('\\', false)) {
+            seq.pop();
+        }
+
+        if done || consumed > 2000 {
             break;
         }
+        // Separate this line from the next joined one.
+        seq.push((' ', false));
     }
 
-    let mut text = tidy(&collapse_ws(&pieces.join(" ")));
+    let mut text = normalize(&seq);
     text.push(':');
     (text, consumed)
 }
 
-/// If `stripped` is a module/class-level constant assignment, return its
-/// normalized signature (name, optional type annotation, elided value).
+/// Collapse code whitespace and tidy bracket/comma spacing, leaving the contents
+/// of string literals (`is_str == true`) untouched.
+fn normalize(seq: &[(char, bool)]) -> String {
+    // 1. Collapse runs of non-string whitespace to a single space.
+    let mut v: Vec<(char, bool)> = Vec::with_capacity(seq.len());
+    let mut prev_ws = false;
+    for &(c, s) in seq {
+        if !s && c.is_whitespace() {
+            if !prev_ws {
+                v.push((' ', false));
+                prev_ws = true;
+            }
+        } else {
+            v.push((c, s));
+            prev_ws = false;
+        }
+    }
+    while v.first().map_or(false, |&(c, s)| !s && c == ' ') {
+        v.remove(0);
+    }
+    while v.last().map_or(false, |&(c, s)| !s && c == ' ') {
+        v.pop();
+    }
+
+    // 2. Tidy: drop spaces hugging brackets/commas/colons and trailing commas.
+    let n = v.len();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < n {
+        let (c, s) = v[i];
+        if !s && c == ' ' {
+            let prev_opener = out.chars().last().map_or(false, |p| matches!(p, '(' | '[' | '{'));
+            let mut k = i + 1;
+            while k < n && !v[k].1 && v[k].0 == ' ' {
+                k += 1;
+            }
+            let next_close = k < n && !v[k].1 && matches!(v[k].0, ')' | ']' | '}' | ',' | ':');
+            if prev_opener || next_close {
+                i += 1;
+                continue;
+            }
+        }
+        if !s && c == ',' {
+            let mut k = i + 1;
+            while k < n && !v[k].1 && v[k].0 == ' ' {
+                k += 1;
+            }
+            if k < n && !v[k].1 && matches!(v[k].0, ')' | ']' | '}') {
+                i += 1;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// If `mstripped` is a module/class-level constant assignment, return its
+/// normalized signature (`NAME[: Type] = …`). `ostripped` is the original text
+/// (same char layout), used to preserve the annotation verbatim.
 ///
 /// A constant is an ALL-CAPS identifier (`[A-Z][A-Z0-9_]*`), optionally
-/// `: Type`, followed by a single `=`. Augmented assignments and comparisons
-/// (`==`, `+=`, …) are rejected.
-fn constant_sig(stripped: &str) -> Option<String> {
-    let bytes = stripped.as_bytes();
-    if bytes.is_empty() || !bytes[0].is_ascii_uppercase() {
+/// `: Type`, followed by a single top-level `=`. Comparisons / augmented forms
+/// are rejected.
+fn constant_sig(mstripped: &str, ostripped: &str) -> Option<String> {
+    let mc: Vec<char> = mstripped.chars().collect();
+    let oc: Vec<char> = ostripped.chars().collect();
+    if oc.is_empty() || !oc[0].is_ascii_uppercase() {
         return None;
     }
 
     let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_' {
+    while i < oc.len() {
+        let c = oc[i];
+        if c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' {
             i += 1;
         } else {
             break;
         }
     }
-    let name = &stripped[..i];
-    let rest = stripped[i..].trim_start();
+    let name: String = oc[..i].iter().collect();
 
-    // Optional type annotation: `: Type`.
-    let (annotation, after) = if let Some(r) = rest.strip_prefix(':') {
-        let eq = r.find('=')?;
-        (Some(r[..eq].trim().to_string()), &r[eq..])
+    let mut j = i;
+    while j < mc.len() && mc[j].is_whitespace() {
+        j += 1;
+    }
+
+    let (annotation, eq) = if j < mc.len() && mc[j] == ':' {
+        let e = find_top_eq(&mc, j + 1)?;
+        let ann: String = oc[j + 1..e].iter().collect();
+        (ann.trim().to_string(), e)
+    } else if j < mc.len() && mc[j] == '=' {
+        (String::new(), j)
     } else {
-        (None, rest)
+        return None;
     };
 
-    let after = after.trim_start();
-    // Must be a plain assignment, not `==` (comparison). Augmented forms like
-    // `+=` never reach here because the operator char breaks identifier parsing.
-    if !after.starts_with('=') || after.starts_with("==") {
+    // Reject `==` comparisons.
+    if eq + 1 < mc.len() && mc[eq + 1] == '=' {
         return None;
     }
 
-    let mut text = String::from(name);
-    if let Some(a) = annotation {
-        if !a.is_empty() {
-            text.push_str(": ");
-            text.push_str(&a);
-        }
+    let mut text = name;
+    if !annotation.is_empty() {
+        text.push_str(": ");
+        text.push_str(&annotation);
     }
     text.push_str(" = …");
     Some(text)
 }
 
-/// Collapse every run of whitespace down to a single space and trim the ends.
-fn collapse_ws(s: &str) -> String {
-    let mut out = String::new();
-    let mut prev_space = false;
-    for ch in s.chars() {
-        if ch.is_whitespace() {
-            if !prev_space {
-                out.push(' ');
-                prev_space = true;
+/// Find the first top-level (bracket-depth-zero) plain `=` at or after `from`,
+/// skipping `==` and comparison/augmented operators.
+fn find_top_eq(mc: &[char], from: usize) -> Option<usize> {
+    let mut depth: i32 = 0;
+    let mut k = from;
+    while k < mc.len() {
+        match mc[k] {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
             }
-        } else {
-            out.push(ch);
-            prev_space = false;
+            '=' if depth <= 0 => {
+                let next_eq = k + 1 < mc.len() && mc[k + 1] == '=';
+                let prev = if k > 0 { mc[k - 1] } else { ' ' };
+                let augmented = matches!(
+                    prev,
+                    '<' | '>' | '!' | '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '~' | ':' | '='
+                );
+                if !next_eq && !augmented {
+                    return Some(k);
+                }
+            }
+            _ => {}
         }
+        k += 1;
     }
-    out.trim().to_string()
-}
-
-/// Tidy up spacing introduced when joining a multi-line signature: remove spaces
-/// hugging brackets/commas/colons and drop trailing commas before a closer.
-fn tidy(s: &str) -> String {
-    let mut t = s.to_string();
-    for (from, to) in [
-        ("( ", "("),
-        (" )", ")"),
-        ("[ ", "["),
-        (" ]", "]"),
-        ("{ ", "{"),
-        (" }", "}"),
-        (" ,", ","),
-        (" :", ":"),
-        (", )", ")"),
-        (",)", ")"),
-        (",]", "]"),
-        (",}", "}"),
-    ] {
-        t = t.replace(from, to);
-    }
-    t
+    None
 }
 
 #[cfg(test)]
@@ -341,5 +498,59 @@ mod tests {
         let s = sigs(src);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].text, "def real():");
+    }
+
+    #[test]
+    fn async_extra_spaces() {
+        let s = sigs("async  def bar():\n    pass\n");
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "async def bar():");
+    }
+
+    #[test]
+    fn string_default_preserved() {
+        let s = sigs("def f(x=\" ,hello\"):\n    pass\n");
+        assert_eq!(s[0].text, "def f(x=\" ,hello\"):");
+    }
+
+    #[test]
+    fn bracket_and_colon_in_string_not_terminator() {
+        let a = sigs("def f(x=\"(\"):\n    pass\n");
+        assert_eq!(a[0].text, "def f(x=\"(\"):");
+        let b = sigs("def f() -> \"A: B\":\n    pass\n");
+        assert_eq!(b[0].text, "def f() -> \"A: B\":");
+    }
+
+    #[test]
+    fn comment_in_params_stripped() {
+        let src = "def f(\n    a,  # one\n    b,\n) -> None:\n    pass\n";
+        let s = sigs(src);
+        assert_eq!(s[0].text, "def f(a, b) -> None:");
+    }
+
+    #[test]
+    fn backslash_continuation_joined() {
+        let s = sigs("def f(a, \\\n      b):\n    pass\n");
+        assert_eq!(s[0].text, "def f(a, b):");
+    }
+
+    #[test]
+    fn annotation_with_equals_inside_brackets() {
+        let s = sigs("MY_CONST: Annotated[int, Field(default=0)] = 0\n");
+        assert_eq!(s[0].text, "MY_CONST: Annotated[int, Field(default=0)] = …");
+    }
+
+    #[test]
+    fn local_const_suppressed() {
+        let s = sigs("def f():\n    LOCAL = 42\n    return LOCAL\n");
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "def f():");
+    }
+
+    #[test]
+    fn triple_marker_inside_quotes_not_triple() {
+        let s = sigs("def a():\n    x = \"'''\"\n\ndef b():\n    pass\n");
+        let texts: Vec<String> = s.iter().map(|x| x.text.clone()).collect();
+        assert_eq!(texts, vec!["def a():".to_string(), "def b():".to_string()]);
     }
 }

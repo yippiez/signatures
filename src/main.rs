@@ -60,8 +60,11 @@ fn run(cfg: cli::Config) -> i32 {
                 continue;
             }
         };
+        // Strip a leading UTF-8 BOM so the first declaration is not hidden
+        // behind the byte-order mark.
+        let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
 
-        let sigs = language.extract(&source);
+        let sigs = language.extract(source);
         if !first {
             out.push('\n');
         }

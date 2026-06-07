@@ -74,7 +74,13 @@ enum Term {
 impl Language for BraceLang {
     fn extract(&self, source: &str) -> Vec<Signature> {
         let masked = mask(source, self.lang);
-        let mlines: Vec<&str> = masked.lines().collect();
+        let mut mvec: Vec<String> = masked.lines().map(|s| s.to_string()).collect();
+        // Rust `extern "C" { … }` blocks are transparent: their `fn` items belong
+        // to the enclosing scope, so blank the block braces to hoist them.
+        if self.lang == Lang::Rust {
+            neutralize_extern_blocks(&mut mvec);
+        }
+        let mlines: Vec<&str> = mvec.iter().map(|s| s.as_str()).collect();
         let olines: Vec<&str> = source.lines().collect();
         let mut out = Vec::new();
         // Stack of enclosing brace blocks. `true` marks a function/other body
@@ -93,6 +99,32 @@ impl Language for BraceLang {
             }
 
             let decl_indent = stack.len();
+
+            // Rust `macro_rules!` bodies contain template tokens (`fn $name()`),
+            // not real declarations — skip the whole definition.
+            if self.lang == Lang::Rust && trimmed.starts_with("macro_rules!") {
+                let mut depth: i32 = 0;
+                let mut seen = false;
+                let mut k = i;
+                while k < mlines.len() {
+                    for c in mlines[k].chars() {
+                        match c {
+                            '{' => {
+                                depth += 1;
+                                seen = true;
+                            }
+                            '}' => depth -= 1,
+                            _ => {}
+                        }
+                    }
+                    k += 1;
+                    if seen && depth <= 0 {
+                        break;
+                    }
+                }
+                i = k.max(i + 1);
+                continue;
+            }
 
             // C preprocessor directives are line-oriented; handle them here so
             // they are never glued onto the following statement by `gather`.
@@ -158,6 +190,56 @@ impl Language for BraceLang {
 
         out
     }
+}
+
+/// Blank the braces of Rust `extern "ABI" { … }` blocks so the items inside are
+/// hoisted to the enclosing nesting level. Operates on the masked lines (where
+/// the ABI string is already blanked); brace chars are replaced by spaces so the
+/// masked text stays length-aligned with the source.
+fn neutralize_extern_blocks(lines: &mut [String]) {
+    let mut i = 0;
+    while i < lines.len() {
+        if is_extern_block_opener(lines[i].trim_start()) {
+            // Blank the single opening brace on this line.
+            lines[i] = lines[i].replace('{', " ");
+            // Find and blank the matching closing brace.
+            let mut depth = 1i32;
+            let mut k = i + 1;
+            'scan: while k < lines.len() {
+                let cs: Vec<char> = lines[k].chars().collect();
+                for (ci, &c) in cs.iter().enumerate() {
+                    if c == '{' {
+                        depth += 1;
+                    } else if c == '}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            let mut nc = cs.clone();
+                            nc[ci] = ' ';
+                            lines[k] = nc.into_iter().collect();
+                            break 'scan;
+                        }
+                    }
+                }
+                k += 1;
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Is `t` (a masked, left-trimmed line) the opener of an `extern` block — i.e.
+/// `extern [unsafe] "ABI" {` with the brace alone after the keyword/ABI?
+fn is_extern_block_opener(t: &str) -> bool {
+    let t = t.strip_prefix("pub").map(|r| r.trim_start()).unwrap_or(t);
+    let t = t.strip_prefix("unsafe").map(|r| r.trim_start()).unwrap_or(t);
+    let rest = match t.strip_prefix("extern") {
+        Some(r) => r,
+        None => return false,
+    };
+    if rest.chars().next().map_or(false, is_ident_byte_char) {
+        return false;
+    }
+    rest.trim() == "{"
 }
 
 /// Advance the block stack over `lines`, pushing on `{` and popping on `}`.
@@ -380,7 +462,9 @@ fn mask(source: &str, lang: Lang) -> String {
                     i = mask_text_block(&chars, i, '"', &mut out);
                     continue;
                 }
-                i = mask_quoted(&chars, i, '"', false, &mut out);
+                // Rust double-quoted strings span multiple physical lines.
+                let allow_nl = lang == Lang::Rust;
+                i = mask_quoted(&chars, i, '"', allow_nl, &mut out);
                 continue;
             }
             '`' if matches!(lang, Lang::Go | Lang::Js | Lang::Ts) => {
@@ -451,15 +535,12 @@ fn mask_quoted(chars: &[char], start: usize, delim: char, allow_newline: bool, o
     // escaped is harmless for masking purposes.
     while i < n {
         let c = chars[i];
-        if c == '\\' && delim != '`' && i + 1 < n {
+        if c == '\\' && i + 1 < n {
             out.push(' ');
-            out.push(' ');
-            i += 2;
-            continue;
-        }
-        if c == '\\' && delim == '`' && i + 1 < n {
-            out.push(' ');
-            out.push(' ');
+            // Preserve a newline that the backslash escapes so the masked
+            // stream stays line-aligned with the source (e.g. Rust/C string
+            // continuations `"foo \<newline>bar"`).
+            out.push(if chars[i + 1] == '\n' { '\n' } else { ' ' });
             i += 2;
             continue;
         }
@@ -695,6 +776,9 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
     // braces inside generic bounds don't end the header prematurely).
     let mut paren: i32 = 0;
     let mut angle: i32 = 0;
+    // Once a top-level `=` is seen we are in value/expression territory, where
+    // `<`/`>`/`<<` are comparison/shift operators, not generic brackets.
+    let mut seen_top_eq = false;
     let mut pieces: Vec<String> = Vec::new();
     let mut consumed = 0;
     let mut term = Term::None;
@@ -740,15 +824,20 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                     piece.push(och(j));
                     j += 1;
                 }
-                '<' if paren <= 0 => {
+                '<' if paren <= 0 && !seen_top_eq => {
                     angle += 1;
                     piece.push(och(j));
                     j += 1;
                 }
-                '>' if paren <= 0 => {
+                '>' if paren <= 0 && !seen_top_eq => {
                     if angle > 0 {
                         angle -= 1;
                     }
+                    piece.push(och(j));
+                    j += 1;
+                }
+                '=' if paren <= 0 && angle <= 0 => {
+                    seen_top_eq = true;
                     piece.push(och(j));
                     j += 1;
                 }
@@ -1044,15 +1133,36 @@ fn classify(header: &str, term: Term, lang: Lang) -> Option<(Kind, String)> {
     match lang {
         Lang::Rust => {
             if kw == "const" || kw == "static" {
-                let r = rest.trim_start();
-                // `static mut X` — skip an inner `mut`.
-                let r = r.strip_prefix("mut").map(|s| s.trim_start()).unwrap_or(r);
+                // Skip any intervening keywords (`mut`, `unsafe`, `async`,
+                // `extern "ABI"`); a following `fn` makes this a function
+                // (`const fn`, `const unsafe fn`), otherwise it is a constant.
+                let mut r = rest.trim_start();
+                loop {
+                    let (w, after) = take_ident(r);
+                    if w == "fn" {
+                        return Some((Kind::Function, h.to_string()));
+                    }
+                    if matches!(w, "mut" | "unsafe" | "async" | "extern") {
+                        r = after.trim_start();
+                        if w == "extern" {
+                            if let Some(q) = r.strip_prefix('"') {
+                                if let Some(e) = q.find('"') {
+                                    r = q[e + 1..].trim_start();
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    break;
+                }
                 let (n2, _) = take_ident(r);
                 if n2.is_empty() {
                     return None; // bare `const` / `static` with no name
                 }
-                if n2 == "fn" {
-                    return Some((Kind::Function, h.to_string()));
+                // A value-less associated const / extern static (`const BAR:
+                // usize;`) has no initializer to elide — show it verbatim.
+                if find_top_eq(h).is_none() {
+                    return Some((Kind::Constant, h.trim().to_string()));
                 }
                 return Some((Kind::Constant, const_text(h)));
             }
@@ -1403,6 +1513,22 @@ fn split_mods<'a>(s: &'a str, lang: Lang) -> (Vec<&'a str>, &'a str) {
             mods.push(&rest[..10]);
             rest = rest[10..].trim_start();
             continue;
+        }
+        // Rust/C++ `extern "ABI"` prefix: consume the optional ABI string with
+        // the keyword so the following `fn` is recognized.
+        if matches!(lang, Lang::Rust | Lang::Cpp) && rest.starts_with("extern") {
+            let tail = &rest["extern".len()..];
+            if tail.chars().next().map_or(true, |c| !is_ident_byte_char(c)) {
+                let t2 = tail.trim_start();
+                if t2.starts_with('"') {
+                    if let Some(close) = t2[1..].find('"') {
+                        let abi_end = rest.len() - t2.len() + 1 + close + 1;
+                        mods.push(rest[..abi_end].trim_end());
+                        rest = rest[abi_end..].trim_start();
+                        continue;
+                    }
+                }
+            }
         }
         // C++ `template <...>` prefix: skip the keyword and its angle clause.
         if lang == Lang::Cpp && rest.starts_with("template") {
