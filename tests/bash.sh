@@ -326,3 +326,10 @@ greet() {
 function deploy() {
   echo "deploying"
 }
+@@CASE@@ subshell_and_arith_bodies
+outer() (
+  fake_inner() { echo "false"; }
+)
+REAL="yes"
+arith_func() (( x = 1 + 2 ))
+real_func() { echo "real"; }

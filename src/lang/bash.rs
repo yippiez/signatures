@@ -299,6 +299,26 @@ fn scrub_line(line: &str, quote: &mut Option<char>, heredocs: &mut Vec<Heredoc>)
     out
 }
 
+/// Index of a subshell/arithmetic body opener `(` on a function's start line —
+/// the `(` directly after the name's `()` (whitespace-only between), used by
+/// `name() ( … )` / `name() (( … ))`. `None` if the body is a `{ … }` group (or
+/// the `(` doesn't directly follow the name parens).
+fn subshell_body_open(line: &str) -> Option<usize> {
+    let close = line.find(')')?;
+    let after = &line[close + 1..];
+    let rel = after.find(|c: char| !c.is_whitespace())?;
+    if after.as_bytes()[rel] != b'(' {
+        return None;
+    }
+    let open = close + 1 + rel;
+    if let Some(b) = line.find('{') {
+        if b < open {
+            return None; // a `{ … }` body comes first
+        }
+    }
+    Some(open)
+}
+
 /// Does a scrubbed, left-trimmed line begin a function definition? Recognizes
 /// both `function name [()]` and `name ()` forms.
 fn is_func_start(trimmed: &str) -> bool {
@@ -320,6 +340,31 @@ fn is_func_start(trimmed: &str) -> bool {
 /// until the opening `{` of the body. Returns the normalized one-line
 /// declaration (body dropped) and the number of source lines consumed.
 fn gather_func(lines: &[String], start: usize) -> (String, usize) {
+    // Subshell / arithmetic body `name() ( … )` / `name() (( … ))`: the body is
+    // opened by `(`, not `{`. Take the head up to that `(` and consume the whole
+    // paren-balanced body so its contents (e.g. a nested function) aren't scanned.
+    let first = lines[start].trim_start();
+    if let Some(pos) = subshell_body_open(first) {
+        let head = first[..pos].trim().to_string();
+        let mut depth: i32 = 0;
+        let mut consumed = 0;
+        for k in start..lines.len() {
+            consumed += 1;
+            let seg: &str = if k == start { &first[pos..] } else { lines[k].as_str() };
+            for c in seg.chars() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if depth <= 0 || consumed >= 64 {
+                break;
+            }
+        }
+        return (tidy(&collapse_ws(&head)), consumed.max(1));
+    }
+
     let mut pieces: Vec<String> = Vec::new();
     let mut consumed = 0;
     let mut found = false;
@@ -541,6 +586,16 @@ mod tests {
         let funcs: Vec<&Signature> = s.iter().filter(|x| x.kind == Kind::Function).collect();
         assert_eq!(funcs.len(), 1);
         assert_eq!(funcs[0].text, "real()");
+    }
+
+    #[test]
+    fn subshell_and_arith_function_bodies() {
+        // `f() ( … )` / `f() (( … ))` bodies are consumed as a unit; a function
+        // defined inside the subshell body must not leak.
+        let src = "outer() (\n  fake() { echo x; }\n)\narith() (( y = 1 ))\nreal() { echo r; }\n";
+        let s = sigs(src);
+        let texts: Vec<String> = s.iter().map(|x| x.text.clone()).collect();
+        assert_eq!(texts, vec!["outer()", "arith()", "real()"]);
     }
 
     #[test]
