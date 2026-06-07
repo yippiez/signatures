@@ -1238,7 +1238,7 @@ fn is_type_literal_brace(mchars: &[char], lead: usize, j: usize) -> bool {
         if mchars[p].is_whitespace() {
             continue;
         }
-        if matches!(mchars[p], '=' | ':' | '|' | ',') {
+        if matches!(mchars[p], '=' | ':' | '|' | ',' | '&') {
             return true;
         }
         // `p` is the last char of the preceding token; extract the whole word.
@@ -1422,6 +1422,10 @@ fn prefilter(t: &str, lang: Lang) -> bool {
             }
             // JS/TS computed method name `[expr]()` ends in `]`, not an identifier.
             if matches!(lang, Lang::Js | Lang::Ts) && head.trim_end().ends_with(']') {
+                return true;
+            }
+            // TS optional method/property signature `name?()` ends in `?`.
+            if lang == Lang::Ts && head.trim_end().ends_with('?') {
                 return true;
             }
         }
@@ -1766,7 +1770,14 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         }
     }
 
-    let name = trailing_ident(head);
+    // TS optional member `name?()` — the `?` is not part of the name; read the
+    // name (and prefix) from the head with a trailing `?` removed.
+    let name_head = if lang == Lang::Ts {
+        head.trim_end().strip_suffix('?').unwrap_or(head)
+    } else {
+        head
+    };
+    let name = trailing_ident(name_head);
     if name.is_empty() {
         // JS/TS computed method name `[expr]()` has no trailing identifier; accept
         // it as a `{`-bodied method.
@@ -1775,7 +1786,7 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         }
         return false;
     }
-    let prefix = head[..head.len() - name.len()].trim();
+    let prefix = name_head[..name_head.len() - name.len()].trim();
     // A control keyword as the bare callable name is a statement (`if (...)`);
     // a method named like one (`Factory of(...)`) has a return-type prefix.
     if is_control(name) && prefix.is_empty() {
@@ -2065,6 +2076,7 @@ fn is_modifier(w: &str, lang: Lang) -> bool {
             "case" | "sealed" | "implicit" | "lazy" | "final"
         ),
         Lang::Php => matches!(w, "final" | "readonly"),
+        Lang::Ts => matches!(w, "declare" | "readonly"),
         Lang::Dart => matches!(
             w,
             "external" | "factory" | "covariant" | "late" | "abstract" | "sealed"
@@ -2753,6 +2765,25 @@ mod tests {
         assert_eq!(
             texts,
             vec!["struct S", "prefix static func - (v: S) -> S", "postfix func +++ (n: Int) -> Int", "actor A", "nonisolated func c() -> Int"]
+        );
+    }
+
+    #[test]
+    fn ts_declare_statements() {
+        let src = "declare class ET {\n  on(t: string): void;\n}\ndeclare const w: Window;\ndeclare enum D { Up }\n";
+        let s = sigs(Lang::Ts, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["declare class ET", "on(t: string): void", "declare const w: Window = …", "declare enum D"]);
+    }
+
+    #[test]
+    fn ts_optional_members_and_intersection() {
+        let src = "interface P {\n  required(): void;\n  optional?(): void;\n}\ntype A = { a: string } & { b: number };\n";
+        let s = sigs(Lang::Ts, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["interface P", "required(): void", "optional?(): void", "type A = { a: string } & { b: number }"]
         );
     }
 

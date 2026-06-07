@@ -916,3 +916,20 @@ export function حساب(قيمة: number, معامل: number): number {
 export const beschreibung: string = "Kreis mit Radius r";
 export const описание: string = "Круг с радиусом r";
 export const 説明: string = "半径rの円";
+@@CASE@@ declare_statements
+declare class EventTarget {
+  addEventListener(type: string): void;
+}
+declare const window: Window;
+declare enum Direction { Up, Down }
+declare namespace DOM {
+  function querySelector(sel: string): Element | null;
+}
+@@CASE@@ optional_members_and_intersection
+interface Plugin {
+  required(): void;
+  optional?(): void;
+  withReturn?(): string;
+}
+type A = { a: string } & { b: number };
+function after(): void {}

@@ -30,7 +30,7 @@ export class Square extends Shape
   perimeter(): number
 export interface StringMap
 export interface EventRegistry
-export type Serializable = object &
+export type Serializable = object & { toJSON(): string }
 export type StringOrNumber = string | number
 export type AnyPrimitive = string | number | boolean | null | undefined
 export type Point2D = [number, number]
@@ -247,3 +247,17 @@ export function حساب(قيمة: number, معامل: number): number
 export const beschreibung: string = …
 export const описание: string = …
 export const 説明: string = …
+@@CASE@@ declare_statements
+declare class EventTarget
+  addEventListener(type: string): void
+declare const window: Window = …
+declare enum Direction
+declare namespace DOM
+  function querySelector(sel: string): Element | null
+@@CASE@@ optional_members_and_intersection
+interface Plugin
+  required(): void
+  optional?(): void
+  withReturn?(): string
+type A = { a: string } & { b: number }
+function after(): void
