@@ -3,6 +3,9 @@ name = "signatures"
 version = "0.1.0"
 edition = "2021"
 description = "Print the signatures (functions, classes, constants) of source files."
+# The `tests/` dir holds language fixture files (e.g. tests/rust.rs), not Cargo
+# integration tests. Disable autodiscovery so Cargo doesn't try to compile them.
+autotests = false
 
 # Intentionally dependency-free: standard library only.
 [dependencies]
