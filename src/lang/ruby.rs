@@ -29,11 +29,23 @@ impl Language for RubyLang {
         let mut out = Vec::new();
         let mut stack: Vec<Frame> = Vec::new();
         let mut in_block_comment = false;
+        // Open heredoc terminators, in body order (a line may open several).
+        let mut heredocs: Vec<String> = Vec::new();
         let mut i = 0;
 
         while i < lines.len() {
             let raw = lines[i];
             let line_no = i + 1;
+
+            // Inside a heredoc body: skip every line (so its `def`/`end`/braces are
+            // not scanned) until the terminator delimiter appears alone on a line.
+            if !heredocs.is_empty() {
+                if raw.trim() == heredocs[0] {
+                    heredocs.remove(0);
+                }
+                i += 1;
+                continue;
+            }
 
             // `=begin` / `=end` block comments occupy whole lines.
             if in_block_comment {
@@ -77,7 +89,9 @@ impl Language for RubyLang {
                 // leading `def`/`class`/`module` keyword is ignored by
                 // `apply_blocks`, so the frame we just pushed is authoritative).
                 for j in i..(i + consumed) {
-                    apply_blocks(&mut stack, &strip_line(lines[j]));
+                    let cj = strip_line(lines[j]);
+                    apply_blocks(&mut stack, &cj);
+                    detect_heredoc_openers(&cj, &mut heredocs);
                 }
                 i += consumed;
                 continue;
@@ -89,10 +103,58 @@ impl Language for RubyLang {
             }
 
             apply_blocks(&mut stack, &clean);
+            detect_heredoc_openers(&clean, &mut heredocs);
             i += 1;
         }
 
         out
+    }
+}
+
+/// Detect heredoc openers on an already-`strip_line`'d line and push their
+/// terminator identifiers onto `terms` (in left-to-right body order). Recognizes
+/// `<<~ID`, `<<-ID`, `<<ID`, `<<'ID'`, `<<"ID"`. To avoid mistaking the left-shift
+/// operator (`a << b`) for a heredoc, a bare (`<<ID`, no `~`/`-`/quote) opener is
+/// only accepted when the identifier starts with an uppercase letter or `_`.
+fn detect_heredoc_openers(clean: &str, terms: &mut Vec<String>) {
+    let b: Vec<char> = clean.chars().collect();
+    let n = b.len();
+    let mut i = 0;
+    while i + 1 < n {
+        if b[i] == '<' && b[i + 1] == '<' {
+            let mut j = i + 2;
+            let squiggly = j < n && (b[j] == '~' || b[j] == '-');
+            if squiggly {
+                j += 1;
+            }
+            if j < n && (b[j] == '\'' || b[j] == '"') {
+                let q = b[j];
+                j += 1;
+                let s = j;
+                while j < n && b[j] != q {
+                    j += 1;
+                }
+                if j > s {
+                    terms.push(b[s..j].iter().collect());
+                }
+                i = j + 1;
+                continue;
+            }
+            let id_ok = j < n
+                && (b[j] == '_'
+                    || b[j].is_ascii_uppercase()
+                    || (squiggly && b[j].is_alphabetic()));
+            if id_ok {
+                let s = j;
+                while j < n && (b[j] == '_' || b[j].is_alphanumeric()) {
+                    j += 1;
+                }
+                terms.push(b[s..j].iter().collect());
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
     }
 }
 
@@ -195,10 +257,14 @@ fn gather_decl(lines: &[&str], start: usize, is_def: bool) -> (String, usize, bo
                 '=' if depth <= 0 && is_def => {
                     let next = chars.get(ci + 1).copied();
                     let prev = piece.chars().last();
+                    // `=` is part of the method NAME for a setter `name=(v)` or an
+                    // assignment operator `[]=(...)` — recognized by a `(` directly
+                    // after it (or a `]` directly before) — not an endless body.
                     let part_of_op = next == Some('=')
                         || next == Some('>')
                         || next == Some('~')
-                        || matches!(prev, Some('<') | Some('>') | Some('!') | Some('='));
+                        || next == Some('(')
+                        || matches!(prev, Some('<') | Some('>') | Some('!') | Some('=') | Some(']'));
                     if part_of_op {
                         piece.push(c);
                         ci += 1;
@@ -405,6 +471,26 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].text, "def foo(a, b, c)");
         assert_eq!(s[0].indent, 0);
+    }
+
+    #[test]
+    fn setter_and_operator_methods() {
+        // `def name=(v)` / `def []=(k, v)` are not endless methods; they must keep
+        // their `=` and args and still push a frame (so siblings nest correctly).
+        let src = "class W\n  def name=(val)\n  end\n  def []=(k, v)\n  end\n  def after\n  end\nend\n";
+        let s = sigs(src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class W", "def name=(val)", "def []=(k, v)", "def after"]);
+        assert!(s.iter().skip(1).all(|x| x.indent == 1));
+    }
+
+    #[test]
+    fn heredoc_body_ignored() {
+        let src = "class O\n  def foo\n    x = <<~SQL\n      def fake\n      end\n    SQL\n  end\n  def bar\n  end\nend\n";
+        let s = sigs(src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class O", "def foo", "def bar"]);
+        assert_eq!(s[2].indent, 1);
     }
 
     #[test]

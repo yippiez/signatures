@@ -172,3 +172,13 @@ module Internationalization
     def sanitize(str)
 def greet(name, greeting = GREETING_ZH)
 def noop
+@@CASE@@ setter_and_operator_methods
+class Widget
+  def name=(val)
+  def [](i)
+  def []=(key, val)
+  def after
+@@CASE@@ heredoc_bodies
+class Outer
+  def foo
+  def bar

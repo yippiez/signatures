@@ -656,3 +656,29 @@ end
 
 def noop
 end
+@@CASE@@ setter_and_operator_methods
+class Widget
+  def name=(val)
+    @name = val
+  end
+  def [](i)
+    @data[i]
+  end
+  def []=(key, val)
+    @data[key] = val
+  end
+  def after
+  end
+end
+@@CASE@@ heredoc_bodies
+class Outer
+  def foo
+    sql = <<~SQL
+      def fake_inside
+      end
+    SQL
+    sql
+  end
+  def bar
+  end
+end
