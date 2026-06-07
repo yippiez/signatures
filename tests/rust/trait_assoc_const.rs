@@ -1,0 +1,3 @@
+trait Foo {
+    const BAR: usize;
+}

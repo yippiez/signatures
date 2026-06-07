@@ -1,0 +1,5 @@
+extern "C" fn c_style() -> i32
+pub extern "C" fn pub_c_style() -> i32
+extern "Rust" fn rust_abi() -> i32
+extern fn default_abi() -> i32
+fn normal() -> i32

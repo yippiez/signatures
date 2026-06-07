@@ -1,0 +1,2 @@
+def f(x=" ,hello"):
+def g(x=",)"):

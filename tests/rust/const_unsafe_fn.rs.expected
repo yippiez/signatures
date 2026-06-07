@@ -1,0 +1,1 @@
+const unsafe fn my_fn(x: i32) -> i32
