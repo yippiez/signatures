@@ -605,3 +605,29 @@ const val MAX = 10
 object Math {
     const val π = 3.14159
 }
+@@CASE@@ typealias_decls
+typealias StringList = List<String>
+typealias Transform<T, R> = (T) -> R
+fun use(s: StringList): Int = s.size
+@@CASE@@ init_block_locals
+class Foo {
+    init {
+        val x: Int = 42
+        var y: String = "hi"
+    }
+    fun bar() {}
+}
+@@CASE@@ property_custom_getter
+class Foo {
+    val fullName: String
+        get() = "hello"
+    val normal: Int = 5
+}
+@@CASE@@ where_clause_same_line_brace
+class A<T>
+    where T : Any {
+    fun foo(): T? = null
+}
+class B {
+    fun bar(): Int = 1
+}

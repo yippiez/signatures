@@ -150,7 +150,11 @@ impl Language for BraceLang {
             }
 
             if !prefilter(trimmed, self.lang) {
-                update_stack(&mut stack, &mlines[i..=i], None);
+                // `init {…}` (Kotlin) / `static {…}` (Java) initializer blocks open
+                // a body whose local declarations are not API — tag it suppressing
+                // so members inside aren't emitted.
+                let tag = if is_init_block(trimmed) { Some(true) } else { None };
+                update_stack(&mut stack, &mlines[i..=i], tag);
                 i += 1;
                 continue;
             }
@@ -228,6 +232,21 @@ fn neutralize_extern_blocks(lines: &mut [String]) {
         }
         i += 1;
     }
+}
+
+/// Is `t` (a masked, left-trimmed line) an `init {` (Kotlin) / `static {` (Java)
+/// initializer-block opener, with the `{` on the same line?
+fn is_init_block(t: &str) -> bool {
+    for kw in ["init", "static"] {
+        if let Some(r) = t.strip_prefix(kw) {
+            if r.is_empty() || r.starts_with(|c: char| c.is_whitespace() || c == '{') {
+                if r.trim_start().starts_with('{') {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Is `t` (a masked, left-trimmed line) the opener of an `extern` block — i.e.
@@ -1036,7 +1055,10 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                         let l = mlines[q].trim_start();
                         if l.is_empty() {
                             q += 1;
-                        } else if l.starts_with('{') {
+                        } else if l.contains('{') {
+                            // Body opener — may be on the where line itself
+                            // (`where T : Any {`). Leave line q unconsumed so its
+                            // `{` is counted by the next iteration.
                             term = Term::Brace;
                             break;
                         } else if l.contains(';') {
@@ -1423,6 +1445,11 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 if n2.is_empty() {
                     return None;
                 }
+                // A property with no initializer (a custom getter follows on the
+                // next line) must not get a spurious ` = …`.
+                if find_top_eq(h).is_none() {
+                    return Some((Kind::Constant, h.trim().to_string()));
+                }
                 return Some((Kind::Constant, const_text(h)));
             }
         }
@@ -1700,7 +1727,7 @@ fn class_keywords(lang: Lang) -> &'static [&'static str] {
         ],
         // Kotlin class-introducers; `data`/`sealed`/`enum`/`annotation`/`inner`
         // are handled as modifiers in `split_mods` (`enum class`, `data class`).
-        Lang::Kotlin => &["class", "interface", "object"],
+        Lang::Kotlin => &["class", "interface", "object", "typealias"],
         Lang::Swift => &[
             "class",
             "struct",
@@ -2469,6 +2496,41 @@ mod tests {
         let src = "trait T {\n  def getOrElse[B >: A](default: B): B\n}\n";
         let s = sigs(Lang::Scala, src);
         assert!(s.iter().any(|x| x.text == "def getOrElse[B >: A](default: B): B"));
+    }
+
+    #[test]
+    fn kotlin_typealias() {
+        let src = "typealias StringList = List<String>\ntypealias T<A, B> = (A) -> B\n";
+        let s = sigs(Lang::Kotlin, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["typealias StringList = List<String>", "typealias T<A, B> = (A) -> B"]);
+        assert!(s.iter().all(|x| x.kind == Kind::Class));
+    }
+
+    #[test]
+    fn kotlin_init_block_suppresses_locals() {
+        let src = "class Foo {\n    init {\n        val x: Int = 42\n        var y: String = \"hi\"\n    }\n    fun bar() {}\n}\n";
+        let s = sigs(Lang::Kotlin, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class Foo", "fun bar()"]);
+    }
+
+    #[test]
+    fn kotlin_property_without_initializer() {
+        let src = "class Foo {\n    val fullName: String\n        get() = \"x\"\n    val n: Int = 5\n}\n";
+        let s = sigs(Lang::Kotlin, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class Foo", "val fullName: String", "val n: Int = …"]);
+    }
+
+    #[test]
+    fn where_clause_brace_on_same_line() {
+        // Regression guard: a `where` clause with `{` on its own line must not
+        // run to EOF and swallow following declarations.
+        let src = "class A<T>\n    where T : Any {\n    fun foo(): T? = null\n}\nclass B {\n    fun bar(): Int = 1\n}\n";
+        let s = sigs(Lang::Kotlin, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class A<T>", "fun foo(): T?", "class B", "fun bar(): Int"]);
     }
 
     #[test]

@@ -33,7 +33,7 @@ value class UserId(val value: Long)
 value class Email(val address: String)
 abstract class AbstractProcessor<T, R>
   abstract fun process(input: T): R
-  abstract val name: String = …
+  abstract val name: String
   open fun validate(input: T): Boolean
   fun run(input: T): R?
 object Factory
@@ -212,3 +212,19 @@ const val 最大値 = …
 const val MAX = …
 object Math
   const val π = …
+@@CASE@@ typealias_decls
+typealias StringList = List<String>
+typealias Transform<T, R> = (T) -> R
+fun use(s: StringList): Int
+@@CASE@@ init_block_locals
+class Foo
+  fun bar()
+@@CASE@@ property_custom_getter
+class Foo
+  val fullName: String
+  val normal: Int = …
+@@CASE@@ where_clause_same_line_brace
+class A<T>
+  fun foo(): T?
+class B
+  fun bar(): Int
