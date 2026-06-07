@@ -426,6 +426,27 @@ fn mask(source: &str, lang: Lang) -> String {
             }
         }
 
+        // C# interpolated-verbatim strings `$@"..."` / `@$"..."` span newlines
+        // (`""` escapes the quote). The plain `@"..."` form is handled by the `@`
+        // block below; these two need a dedicated check because `$` is an
+        // identifier char (it defeats that block's boundary guard).
+        if lang == Lang::CSharp && (c == '$' || c == '@') && i + 2 < n {
+            let qpos = if c == '$' && chars[i + 1] == '@' && chars[i + 2] == '"' {
+                Some(i + 2)
+            } else if c == '@' && chars[i + 1] == '$' && chars[i + 2] == '"' {
+                Some(i + 2)
+            } else {
+                None
+            };
+            if let Some(qpos) = qpos {
+                for _ in i..qpos {
+                    out.push(' ');
+                }
+                i = mask_verbatim_body(&chars, qpos, &mut out);
+                continue;
+            }
+        }
+
         // `@` handling: annotations/decorators, C# verbatim strings, etc.
         if c == '@' && (i == 0 || !is_ident_byte_char(chars[i - 1])) {
             match lang {
@@ -791,10 +812,16 @@ fn mask_text_block(chars: &[char], start: usize, delim: char, out: &mut String) 
 /// Blank a C# verbatim string `@"..."`, where `""` is an escaped quote. Spans
 /// newlines, preserving them.
 fn mask_verbatim(chars: &[char], start: usize, out: &mut String) -> usize {
-    let n = chars.len();
     out.push(' '); // @
+    mask_verbatim_body(chars, start + 1, out)
+}
+
+/// Mask a C# verbatim-string body starting at the opening `"` (`qpos`). Spans
+/// newlines; `""` escapes a quote. Returns the index just past the closing `"`.
+fn mask_verbatim_body(chars: &[char], qpos: usize, out: &mut String) -> usize {
+    let n = chars.len();
     out.push(' '); // opening "
-    let mut i = start + 2;
+    let mut i = qpos + 1;
     while i < n {
         if chars[i] == '"' {
             if i + 1 < n && chars[i + 1] == '"' {
@@ -977,6 +1004,31 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
             }
             if p < mlines.len() {
                 let next = mlines[p].trim_start();
+                // A generic-constraint clause (C# / Rust `where ...`) sits between
+                // the header and its `{`/`;`. Consume it (so its lines don't get
+                // scanned as their own declarations and its body brace is still
+                // attributed correctly) but DROP it from the header text — matching
+                // the convention that constraints are elided from signatures.
+                if next == "where" || next.starts_with("where ") {
+                    let mut q = p;
+                    while q < mlines.len() {
+                        let l = mlines[q].trim_start();
+                        if l.is_empty() {
+                            q += 1;
+                        } else if l.starts_with('{') {
+                            term = Term::Brace;
+                            break;
+                        } else if l.contains(';') {
+                            term = Term::Semi;
+                            q += 1;
+                            break;
+                        } else {
+                            q += 1;
+                        }
+                    }
+                    consumed += q - k - 1; // header line already counted
+                    break;
+                }
                 if next.starts_with('{') {
                     term = Term::Brace;
                 } else if next.starts_with(';') {
@@ -1175,9 +1227,11 @@ fn prefilter(t: &str, lang: Lang) -> bool {
             if !name.is_empty() && !is_control(name) {
                 return true;
             }
-            // C++ operator overloads have a symbol name (`operator+`, `operator[]`,
-            // `operator=`) that `trailing_ident` cannot read.
-            if lang == Lang::Cpp && operator_keyword_start(&t[..idx]).is_some() {
+            // C++/C# operator overloads have a symbol name (`operator+`,
+            // `operator[]`, `operator ==`) that `trailing_ident` cannot read.
+            if matches!(lang, Lang::Cpp | Lang::CSharp)
+                && operator_keyword_start(&t[..idx]).is_some()
+            {
                 return true;
             }
         }
@@ -1496,11 +1550,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     let before = h[..idx].trim_end();
     let head = callable_head(before);
 
-    // C++ operator functions: `R operator@(...)`, `operator T(...)`. The name is
-    // the `operator` token — possibly a symbol (`operator+`, `operator[]`,
-    // `operator->`) that `trailing_ident` cannot read — so detect the keyword and
+    // C++/C# operator functions: `R operator@(...)`, `operator T(...)`. The name
+    // is the `operator` token — possibly a symbol (`operator+`, `operator[]`,
+    // `operator ==`) that `trailing_ident` cannot read — so detect the keyword and
     // accept it directly, rejecting obvious expression/statement contexts.
-    if lang == Lang::Cpp {
+    if matches!(lang, Lang::Cpp | Lang::CSharp) {
         if let Some(op_start) = operator_keyword_start(before) {
             if term != Term::Brace && term != Term::Semi {
                 return false;
@@ -2163,6 +2217,54 @@ mod tests {
         assert_eq!(funcs, vec!["void before()", "void after()"]);
         // `after` stays at top level — raw-string braces did not nest it.
         assert_eq!(s.last().unwrap().indent, 0);
+    }
+
+    #[test]
+    fn csharp_operator_overloads_recognized() {
+        let src = "public struct S {\n    public static S operator +(S a, S b) { return a; }\n    public static bool operator ==(S a, S b) { return true; }\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "public struct S",
+                "public static S operator +(S a, S b)",
+                "public static bool operator ==(S a, S b)",
+            ]
+        );
+    }
+
+    #[test]
+    fn csharp_where_constraint_on_own_line() {
+        // The method must survive (not be dropped) and `After` must stay at the
+        // class's member depth — the body brace was being orphaned before.
+        let src = "public class C {\n    public T Get<T>()\n        where T : class\n    {\n        return default;\n    }\n    public void After() {}\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["public class C", "public T Get<T>()", "public void After()"]);
+        assert_eq!(s[1].indent, 1);
+        assert_eq!(s[2].indent, 1);
+    }
+
+    #[test]
+    fn rust_where_constraint_still_stripped() {
+        // Regression guard: Rust multi-line `where` must keep working (clause
+        // dropped, nesting intact) after the C# where-clause fix.
+        let src = "pub struct Wrap<T>\nwhere\n    T: Clone,\n{\n    pub fn new(x: T) -> Self {}\n}\n";
+        let s = sigs(Lang::Rust, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["pub struct Wrap<T>", "pub fn new(x: T) -> Self"]);
+        assert_eq!(s[1].indent, 1);
+    }
+
+    #[test]
+    fn csharp_interpolated_verbatim_masked() {
+        let src = "class C {\n    void M() {\n        string s = $@\"\nclass Fake { }\n{\n\";\n    }\n    void Good() {}\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let funcs: Vec<&str> =
+            s.iter().filter(|x| x.kind == Kind::Function).map(|x| x.text.as_str()).collect();
+        assert_eq!(funcs, vec!["void M()", "void Good()"]);
+        assert_eq!(s.last().unwrap().indent, 1);
     }
 
     #[test]

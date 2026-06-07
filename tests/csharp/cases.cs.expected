@@ -31,6 +31,7 @@ namespace Edge
   public struct Point
   public readonly struct Vector2
     public Vector2(float x, float y)
+    public static bool operator !=(Vector2 a, Vector2 b)
     public override string ToString()
   public interface IPrintable
     void Print()
@@ -66,9 +67,12 @@ namespace Demo.Generics
     public static Pipeline<TIn, TIn> Start()
     public TOut Run(TIn input)
   public static class GenericExtensions
+    public static TResult ApplyOrDefault<TSource, TResult>(this TSource? source, Func<TSource, TResult> selector, TResult defaultValue)
+    public static IEnumerable<T> WhereNotNull<T>(this IEnumerable<T?> source)
     public static void ForEach<T>(this IEnumerable<T> source, Action<T> action)
     public static TAccum Fold<TItem, TAccum>(this IEnumerable<TItem> source, TAccum seed, Func<TAccum, TItem, TAccum> accumulator)
   public static class ComparerFactory
+    public static IComparer<T> ByKey<T, TKey>(Func<T, TKey> keySelector)
   public enum SortDirection
   public delegate TResult Transformer<TIn, TOut, TResult>(TIn input, TOut context)
 @@CASE@@ Nested
@@ -182,3 +186,18 @@ public class Account
 public interface IGreeter
   string Greet()
 public enum Status
+@@CASE@@ operator_overloads
+public struct S
+  public static S operator +(S a, S b)
+  public static bool operator ==(S a, S b)
+  public static bool operator !=(S a, S b)
+  public static S operator ++(S s)
+@@CASE@@ where_constraint
+public class C
+  public void Before()
+  public T Get<T>()
+  public void After()
+@@CASE@@ interpolated_verbatim
+class C
+  public void Method()
+  public void Good()

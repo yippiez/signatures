@@ -722,3 +722,32 @@ public interface IGreeter
 }
 
 public enum Status { Open, Closed }
+@@CASE@@ operator_overloads
+public struct S {
+    public static S operator +(S a, S b) { return a; }
+    public static bool operator ==(S a, S b) { return true; }
+    public static bool operator !=(S a, S b) { return false; }
+    public static S operator ++(S s) { return s; }
+}
+@@CASE@@ where_constraint
+public class C {
+    public void Before() {}
+    public T Get<T>()
+        where T : class
+    {
+        return default;
+    }
+    public void After() {}
+}
+@@CASE@@ interpolated_verbatim
+class C
+{
+    public void Method()
+    {
+        string s = $@"
+class FakeClass { }
+{
+";
+    }
+    public void Good() { }
+}
