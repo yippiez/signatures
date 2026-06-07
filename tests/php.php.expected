@@ -137,3 +137,12 @@ class Model
 interface Persistable
   public function save(): bool
   public function delete(): void
+@@CASE@@ heredoc_nowdoc
+function f(): string
+class C
+  public function m(): string
+  public function after(): int
+function g(): void
+@@CASE@@ attribute_inline_and_line
+class Api
+  public function handle(#[Inject] string $svc, int $id): void

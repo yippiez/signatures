@@ -639,3 +639,25 @@ interface Persistable
     public function save(): bool;
     public function delete(): void;
 }
+@@CASE@@ heredoc_nowdoc
+<?php
+function f(): string {
+    return <<<EOT
+    function fakeHeredoc() {}
+    EOT;
+}
+class C {
+    public function m(): string {
+        return <<<'EOT'
+        }}} class FakeNowdoc {}
+        EOT;
+    }
+    public function after(): int { return 42; }
+}
+function g(): void {}
+@@CASE@@ attribute_inline_and_line
+<?php
+#[Route("/api")]
+class Api {
+    public function handle(#[Inject] string $svc, int $id): void {}
+}

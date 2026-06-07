@@ -402,13 +402,28 @@ fn mask(source: &str, lang: Lang) -> String {
             }
             continue;
         }
-        // PHP line comment `# ...` (also covers `#[Attr]` attribute lines).
+        // PHP `#[Attr]` attribute: mask the balanced `#[ … ]` region (not to end
+        // of line) so an inline attribute in a parameter list doesn't blank the
+        // rest of the signature. `#` alone is still a line comment.
+        if lang == Lang::Php && c == '#' && i + 1 < n && chars[i + 1] == '[' {
+            i = mask_php_attribute(&chars, i, &mut out);
+            continue;
+        }
+        // PHP line comment `# ...`.
         if lang == Lang::Php && c == '#' {
             while i < n && chars[i] != '\n' {
                 out.push(' ');
                 i += 1;
             }
             continue;
+        }
+        // PHP heredoc/nowdoc `<<<EOT … EOT` / `<<<'EOT' … EOT`: blank the body so
+        // its contents are not scanned as code.
+        if lang == Lang::Php && c == '<' && i + 2 < n && chars[i + 1] == '<' && chars[i + 2] == '<' {
+            if let Some(ni) = mask_php_heredoc(&chars, i, &mut out) {
+                i = ni;
+                continue;
+            }
         }
         // Block comment `/* ... */`. In some langs these nest, tracked by depth.
         if c == '/' && i + 1 < n && chars[i + 1] == '*' {
@@ -789,6 +804,108 @@ fn mask_cpp_raw(chars: &[char], start: usize, out: &mut String) -> usize {
         i += 1;
     }
     i
+}
+
+/// Blank a PHP 8 attribute `#[ … ]` (balanced brackets, may span lines). Returns
+/// the index just past the closing `]`.
+fn mask_php_attribute(chars: &[char], start: usize, out: &mut String) -> usize {
+    let n = chars.len();
+    out.push(' '); // #
+    out.push(' '); // [
+    let mut i = start + 2;
+    let mut depth = 1;
+    while i < n && depth > 0 {
+        match chars[i] {
+            '[' => depth += 1,
+            ']' => depth -= 1,
+            _ => {}
+        }
+        out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+        i += 1;
+    }
+    i
+}
+
+/// Blank a PHP heredoc/nowdoc body. `chars[start..]` begins with `<<<`. Returns
+/// the index after the closing delimiter identifier (leaving any trailing `;`/`,`
+/// as code), or `None` if this is not a valid heredoc opener.
+fn mask_php_heredoc(chars: &[char], start: usize, out: &mut String) -> Option<usize> {
+    let n = chars.len();
+    let mut i = start + 3;
+    while i < n && (chars[i] == ' ' || chars[i] == '\t') {
+        i += 1;
+    }
+    let quote = if i < n && (chars[i] == '\'' || chars[i] == '"') {
+        let q = chars[i];
+        i += 1;
+        Some(q)
+    } else {
+        None
+    };
+    let id0 = i;
+    while i < n && (chars[i] == '_' || chars[i].is_alphanumeric()) {
+        i += 1;
+    }
+    if i == id0 {
+        return None;
+    }
+    let ident: Vec<char> = chars[id0..i].to_vec();
+    if let Some(q) = quote {
+        if i < n && chars[i] == q {
+            i += 1;
+        } else {
+            return None;
+        }
+    }
+    // The opener must be at end of line (only trailing whitespace allowed).
+    let mut j = i;
+    while j < n && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\r') {
+        j += 1;
+    }
+    if j < n && chars[j] != '\n' {
+        return None;
+    }
+    // Blank the opener `<<<…IDENT` and the rest of its line, keeping the newline.
+    for _ in start..i {
+        out.push(' ');
+    }
+    while i < n && chars[i] != '\n' {
+        out.push(' ');
+        i += 1;
+    }
+    if i < n {
+        out.push('\n');
+        i += 1;
+    }
+    // Blank body lines until the closing delimiter (PHP 7.3+ allows it to be
+    // indented and followed by a non-identifier char).
+    while i < n {
+        let mut p = i;
+        while p < n && (chars[p] == ' ' || chars[p] == '\t') {
+            p += 1;
+        }
+        let is_closer = ident.iter().enumerate().all(|(k, &ic)| chars.get(p + k) == Some(&ic))
+            && {
+                let after = p + ident.len();
+                after >= n || !(chars[after] == '_' || chars[after].is_alphanumeric())
+            };
+        if is_closer {
+            while i < p + ident.len() {
+                out.push(' ');
+                i += 1;
+            }
+            return Some(i);
+        }
+        while i < n && chars[i] != '\n' {
+            out.push(' ');
+            i += 1;
+        }
+        if i < n {
+            out.push('\n');
+            i += 1;
+        }
+    }
+    Some(i)
 }
 
 /// Blank a Java/TS annotation `@Name`, `@Name.Sub`, optionally `@Name(...)`.
@@ -2531,6 +2648,31 @@ mod tests {
         let s = sigs(Lang::Kotlin, src);
         let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["class A<T>", "fun foo(): T?", "class B", "fun bar(): Int"]);
+    }
+
+    #[test]
+    fn php_heredoc_body_ignored() {
+        let src = "<?php\nfunction f(): string {\n    return <<<EOT\n    function fake() {}\n    EOT;\n}\nfunction g(): void {}\n";
+        let s = sigs(Lang::Php, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["function f(): string", "function g(): void"]);
+    }
+
+    #[test]
+    fn php_nowdoc_braces_dont_corrupt_nesting() {
+        let src = "<?php\nclass C {\n    public function m(): string {\n        return <<<'EOT'\n        }}}\n        EOT;\n    }\n    public function after(): int { return 1; }\n}\n";
+        let s = sigs(Lang::Php, src);
+        // `after` must remain a member of C (indent 1), not hoisted to top level.
+        let after = s.iter().find(|x| x.text.contains("after")).unwrap();
+        assert_eq!(after.indent, 1);
+    }
+
+    #[test]
+    fn php_inline_attribute_in_params() {
+        let src = "<?php\nfunction f(#[Inject] string $x): void {}\nfunction g(int $y): int { return $y; }\n";
+        let s = sigs(Lang::Php, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["function f(#[Inject] string $x): void", "function g(int $y): int"]);
     }
 
     #[test]
