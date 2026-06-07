@@ -369,3 +369,11 @@ VERSION = "1.0"
 PATH = 'usr/local'
 MAX = 10
 lower = "ignored"
+@@CASE@@ string_key_functions
+T["onClick"] = function(event)
+  return event
+end
+
+T['namedKey'] = function(x, y)
+  return x + y
+end

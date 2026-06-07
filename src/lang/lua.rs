@@ -23,6 +23,9 @@ pub struct LuaLang;
 impl Language for LuaLang {
     fn extract(&self, source: &str) -> Vec<Signature> {
         let masked = mask_lines(source);
+        // Original lines (same per-line length as `masked`) so signature text can
+        // keep literal content like a string table key `T["onClick"]`.
+        let orig: Vec<&str> = source.lines().collect();
         let mut out = Vec::new();
         // Stack of indent widths of enclosing declarations, for nesting levels.
         let mut stack: Vec<usize> = Vec::new();
@@ -39,7 +42,7 @@ impl Language for LuaLang {
             let indent_width = leading_width(line);
 
             if is_function_start(stripped) {
-                let (text, consumed) = gather_function(&masked, i);
+                let (text, consumed) = gather_function(&masked, &orig, i);
                 if !text.is_empty() {
                     let level = push_level(&mut stack, indent_width);
                     out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no });
@@ -235,36 +238,45 @@ fn is_function_start(stripped: &str) -> bool {
 /// Collect a function header starting at `start`, joining continuation lines
 /// until the parameter parentheses balance. Returns the normalized one-line text
 /// (body dropped) and the number of lines consumed.
-fn gather_function(lines: &[String], start: usize) -> (String, usize) {
+fn gather_function(masked: &[String], orig: &[&str], start: usize) -> (String, usize) {
     let mut depth: i32 = 0;
     let mut seen_open = false;
     let mut pieces: Vec<String> = Vec::new();
     let mut consumed = 0;
     let mut done = false;
 
-    for k in start..lines.len() {
+    for k in start..masked.len() {
         consumed += 1;
-        let src = if k == start { lines[k].trim_start() } else { lines[k].trim() };
+        // Structure (paren depth) comes from the masked line — so parens inside a
+        // string/comment don't count — but the emitted text uses the original
+        // chars at the same index so literal content (e.g. a string key) survives.
+        let m: Vec<char> = masked[k].chars().collect();
+        let o: Vec<char> = orig.get(k).map(|s| s.chars().collect()).unwrap_or_else(|| m.clone());
+        let lead = m.iter().position(|c| !c.is_whitespace()).unwrap_or(m.len());
 
         let mut piece = String::new();
-        for c in src.chars() {
-            match c {
+        let mut j = lead;
+        while j < m.len() {
+            let mc = m[j];
+            let oc = if j < o.len() { o[j] } else { mc };
+            match mc {
                 '(' => {
                     depth += 1;
                     seen_open = true;
-                    piece.push(c);
+                    piece.push(oc);
                 }
                 ')' => {
                     if depth > 0 {
                         depth -= 1;
                     }
-                    piece.push(c);
+                    piece.push(oc);
                     if seen_open && depth == 0 {
                         done = true;
                     }
                 }
-                _ => piece.push(c),
+                _ => piece.push(oc),
             }
+            j += 1;
             if done {
                 break;
             }
@@ -440,6 +452,17 @@ mod tests {
         assert_eq!(s.len(), 2);
         assert_eq!(s[0].text, "function M.foo(a)");
         assert_eq!(s[1].text, "M.bar = function(x, y)");
+    }
+
+    #[test]
+    fn string_key_function_preserves_key() {
+        // The string key inside `T["k"]` is masked for structure but must survive
+        // in the emitted signature text.
+        let src = "T[\"onClick\"] = function(event)\nend\nT['k'] = function(x)\nend\n";
+        let s = sigs(src);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].text, "T[\"onClick\"] = function(event)");
+        assert_eq!(s[1].text, "T['k'] = function(x)");
     }
 
     #[test]
