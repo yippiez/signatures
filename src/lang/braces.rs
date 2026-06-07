@@ -1868,7 +1868,10 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
                     angle -= 1;
                 }
             }
-            '=' | '(' | ')' | '{' | '}' | ';' | '?' | '@' if angle == 0 => return false,
+            // `?` marks a nullable type in C#/TS (`int?`, `T?`), so it's allowed
+            // in a return-type prefix there; elsewhere it signals a ternary.
+            '?' if angle == 0 && !matches!(lang, Lang::CSharp | Lang::Ts) => return false,
+            '=' | '(' | ')' | '{' | '}' | ';' | '@' if angle == 0 => return false,
             _ => {}
         }
     }
@@ -2860,6 +2863,14 @@ mod tests {
         let s = sigs(Lang::Cpp, src);
         let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["concept Integral = …", "constinit int counter = …", "class Foo", "void m()"]);
+    }
+
+    #[test]
+    fn csharp_nullable_return_type() {
+        let src = "public class A {\n  public int? Method() { return null; }\n  public string? Find(int id) { return null; }\n}\n";
+        let s = sigs(Lang::CSharp, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["public class A", "public int? Method()", "public string? Find(int id)"]);
     }
 
     #[test]

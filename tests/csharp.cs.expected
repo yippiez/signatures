@@ -53,6 +53,7 @@ namespace Demo.Generics
     public Result(TError error)
     public TOut Match<TOut>(Func<T, TOut> onOk, Func<TError, TOut> onError)
   public interface IRepository<TEntity, TKey>
+    TEntity? FindById(TKey id)
     IEnumerable<TEntity> FindAll()
     void Save(TEntity entity)
     bool Delete(TKey id)
@@ -201,3 +202,8 @@ public class C
 class C
   public void Method()
   public void Good()
+@@CASE@@ nullable_return_types
+public class A
+  public int? Method()
+  public string? Find(int id)
+  public void Normal()

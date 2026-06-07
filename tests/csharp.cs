@@ -751,3 +751,9 @@ class FakeClass { }
     }
     public void Good() { }
 }
+@@CASE@@ nullable_return_types
+public class A {
+    public int? Method() { return null; }
+    public string? Find(int id) { return null; }
+    public void Normal() { }
+}
