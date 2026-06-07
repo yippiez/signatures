@@ -464,13 +464,16 @@ fn mask(source: &str, lang: Lang) -> String {
             }
         }
 
-        // GCC/Clang `__attribute__((…))` and MSVC `__declspec(…)` decorators —
-        // blank them (like an annotation) so the declaration that follows is still
-        // recognized when the decorator leads the line.
+        // C/C++ decorators that take a parenthesized argument and prefix a
+        // declaration — `__attribute__((…))`, `__declspec(…)`, `alignas(…)` /
+        // `_Alignas(…)`. Blank them (like an annotation) so the declaration is
+        // still recognized and a data member with `alignas(...)` isn't mistaken
+        // for a function (its `(` would otherwise trip the callable detector).
         if matches!(lang, Lang::C | Lang::Cpp)
-            && c == '_'
             && (starts_with_word(&chars, i, "__attribute__")
-                || starts_with_word(&chars, i, "__declspec"))
+                || starts_with_word(&chars, i, "__declspec")
+                || starts_with_word(&chars, i, "alignas")
+                || starts_with_word(&chars, i, "_Alignas"))
         {
             i = mask_gnu_attribute(&chars, i, &mut out);
             continue;
@@ -823,13 +826,9 @@ fn mask_cpp_raw(chars: &[char], start: usize, out: &mut String) -> usize {
 /// Returns the index just past it.
 fn mask_gnu_attribute(chars: &[char], start: usize, out: &mut String) -> usize {
     let n = chars.len();
-    let kw_len = if starts_with_word(chars, start, "__attribute__") {
-        "__attribute__".len()
-    } else {
-        "__declspec".len()
-    };
     let mut i = start;
-    for _ in 0..kw_len {
+    // Blank the decorator keyword (the leading identifier run).
+    while i < n && (chars[i] == '_' || chars[i].is_alphanumeric()) {
         out.push(' ');
         i += 1;
     }
@@ -1391,7 +1390,10 @@ fn prefilter(t: &str, lang: Lang) -> bool {
                 }
             }
             Lang::C | Lang::Cpp => {
-                if matches!(kw, "const" | "constexpr" | "static") {
+                if matches!(kw, "const" | "constexpr" | "static" | "constinit") {
+                    return true;
+                }
+                if lang == Lang::Cpp && kw == "concept" {
                     return true;
                 }
             }
@@ -1594,13 +1596,19 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
             }
         }
         Lang::C | Lang::Cpp => {
-            if matches!(kw, "const" | "constexpr" | "static") {
+            // C++20 `concept Name = …` is a named declaration.
+            if lang == Lang::Cpp && kw == "concept" {
+                return Some((Kind::Class, const_text(h)));
+            }
+            if matches!(kw, "const" | "constexpr" | "static" | "constinit") {
                 if looks_like_function(h, lang, term, in_type_body) {
                     return Some((Kind::Function, h.to_string()));
                 }
-                // `static` alone (no `const`/`constexpr`) is mutable — not a
-                // constant. A `constexpr` is always a constant.
-                let is_const = contains_word(h, "const") || contains_word(h, "constexpr");
+                // `static` alone (no `const`/`constexpr`/`constinit`) is mutable —
+                // not a constant. `constexpr`/`constinit` are always constants.
+                let is_const = contains_word(h, "const")
+                    || contains_word(h, "constexpr")
+                    || contains_word(h, "constinit");
                 if is_const && h.contains('=') {
                     return Some((Kind::Constant, const_text(h)));
                 }
@@ -2844,6 +2852,14 @@ mod tests {
         let s = sigs(Lang::C, src);
         let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["int f(int x)", "int g(int x)"]);
+    }
+
+    #[test]
+    fn cpp_concept_constinit_alignas() {
+        let src = "concept Integral = std::is_integral_v<T>;\nconstinit int counter = 0;\nclass Foo {\n  void m();\n  alignas(16) float arr_[4];\n};\n";
+        let s = sigs(Lang::Cpp, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["concept Integral = …", "constinit int counter = …", "class Foo", "void m()"]);
     }
 
     #[test]

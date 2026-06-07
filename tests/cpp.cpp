@@ -887,3 +887,17 @@ private:
 };
 
 } // namespace util
+@@CASE@@ concept_constinit
+template<typename T>
+concept Integral = std::is_integral_v<T>;
+constinit int counter = 0;
+constexpr int MAX = 100;
+int regular_fn(int x);
+@@CASE@@ alignas_member_not_function
+class Foo {
+public:
+    void real_method();
+private:
+    alignas(16) float arr_[4];
+    alignas(double) char buf_[8];
+};

@@ -323,3 +323,11 @@ namespace util
     explicit Übersetzer(std::string sprache)
     std::string übersetzen(const std::string& text) const
     bool unterstützt(const std::string& sprache) const
+@@CASE@@ concept_constinit
+concept Integral = …
+constinit int counter = …
+constexpr int MAX = …
+int regular_fn(int x)
+@@CASE@@ alignas_member_not_function
+class Foo
+  void real_method()
