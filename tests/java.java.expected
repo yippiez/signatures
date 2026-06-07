@@ -115,3 +115,14 @@ public class Account
 interface Greeter
   String greet()
 enum Status
+@@CASE@@ keyword_like_method_names
+public class Factory
+  public static Factory of(String name)
+  public Factory with(String key)
+  public void in(int x)
+  public void process()
+@@CASE@@ annotation_default_array
+@interface Ann
+  String[] tags() default {}
+  String[] more() default {"one", "two"}
+  int level() default 3

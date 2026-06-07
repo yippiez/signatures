@@ -1080,27 +1080,31 @@ fn leading_ws(chars: &[char]) -> usize {
 /// body opener (dropped)? Heuristic: a `{` directly following `=`, `:`, `|` or
 /// `,`, or adjacent to a `struct`/`interface` keyword (Go anonymous types).
 fn is_type_literal_brace(mchars: &[char], lead: usize, j: usize) -> bool {
+    // Find the last non-whitespace char before `{` (whitespace between the token
+    // and the `{` is allowed, e.g. `default {…}`).
     let mut p = j;
     while p > lead {
         p -= 1;
-        if !mchars[p].is_whitespace() {
-            if matches!(mchars[p], '=' | ':' | '|' | ',') {
-                return true;
-            }
-            break;
+        if mchars[p].is_whitespace() {
+            continue;
         }
-    }
-    if j > lead && !mchars[j - 1].is_whitespace() {
-        let mut s = j;
-        while s > lead && (mchars[s - 1].is_alphanumeric() || mchars[s - 1] == '_') {
-            s -= 1;
-        }
-        let word: String = mchars[s..j].iter().collect();
-        if (word == "interface" || word == "struct")
-            && (s == lead || !(mchars[s - 1].is_alphanumeric() || mchars[s - 1] == '_'))
-        {
+        if matches!(mchars[p], '=' | ':' | '|' | ',') {
             return true;
         }
+        // `p` is the last char of the preceding token; extract the whole word.
+        if mchars[p].is_alphanumeric() || mchars[p] == '_' {
+            let mut s = p + 1;
+            while s > lead && (mchars[s - 1].is_alphanumeric() || mchars[s - 1] == '_') {
+                s -= 1;
+            }
+            let word: String = mchars[s..p + 1].iter().collect();
+            // `interface`/`struct` introduce an anonymous type literal; `default`
+            // introduces a Java annotation element's array value (`elem() default {…}`).
+            if matches!(word.as_str(), "interface" | "struct" | "default") {
+                return true;
+            }
+        }
+        break;
     }
     false
 }
@@ -1248,9 +1252,16 @@ fn prefilter(t: &str, lang: Lang) -> bool {
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
     ) {
         if let Some(idx) = t.find('(') {
-            let name = trailing_ident(callable_head(&t[..idx]));
-            if !name.is_empty() && !is_control(name) {
-                return true;
+            let head = callable_head(&t[..idx]);
+            let name = trailing_ident(head);
+            if !name.is_empty() {
+                // Reject a bare control-flow statement (`if (...)`), but NOT a
+                // method whose name merely looks like a keyword (`Factory of(...)`,
+                // `T with(...)`) — those carry a return type / modifier prefix.
+                let prefix_empty = head[..head.len() - name.len()].trim().is_empty();
+                if !(is_control(name) && prefix_empty) {
+                    return true;
+                }
             }
             // C++/C#/Dart operator overloads have a symbol name (`operator+`,
             // `operator[]`, `operator ==`) that `trailing_ident` cannot read.
@@ -1597,10 +1608,15 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     }
 
     let name = trailing_ident(head);
-    if name.is_empty() || is_control(name) {
+    if name.is_empty() {
         return false;
     }
     let prefix = head[..head.len() - name.len()].trim();
+    // A control keyword as the bare callable name is a statement (`if (...)`);
+    // a method named like one (`Factory of(...)`) has a return-type prefix.
+    if is_control(name) && prefix.is_empty() {
+        return false;
+    }
     // Member access (`obj.method(`) is a call expression, not a declaration.
     if prefix.ends_with('.') {
         return false;
@@ -2395,6 +2411,27 @@ mod tests {
         let funcs: Vec<&str> =
             s.iter().filter(|x| x.kind == Kind::Function).map(|x| x.text.as_str()).collect();
         assert_eq!(funcs, vec!["func Visible()"]);
+    }
+
+    #[test]
+    fn java_keyword_like_method_names() {
+        // Methods named after control keywords (`of`, `with`, `in`) must be kept
+        // when they have a return type; a bare `if (...)` is still rejected.
+        let src = "class F {\n  static F of(String n) { return null; }\n  F with(String k) { return this; }\n  void run() {\n    if (x) { return; }\n  }\n}\n";
+        let s = sigs(Lang::Java, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["class F", "static F of(String n)", "F with(String k)", "void run()"]);
+    }
+
+    #[test]
+    fn java_annotation_default_array() {
+        let src = "@interface Ann {\n  String[] tags() default {};\n  String[] more() default {\"a\", \"b\"};\n}\n";
+        let s = sigs(Lang::Java, src);
+        let texts: Vec<&str> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["@interface Ann", "String[] tags() default {}", "String[] more() default {\"a\", \"b\"}"]
+        );
     }
 
     #[test]

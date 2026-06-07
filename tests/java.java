@@ -483,3 +483,16 @@ interface Greeter {
 }
 
 enum Status { OPEN, CLOSED }
+@@CASE@@ keyword_like_method_names
+public class Factory {
+    public static Factory of(String name) { return null; }
+    public Factory with(String key) { return this; }
+    public void in(int x) {}
+    public void process() {}
+}
+@@CASE@@ annotation_default_array
+@interface Ann {
+    String[] tags() default {};
+    String[] more() default {"one", "two"};
+    int level() default 3;
+}
