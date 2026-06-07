@@ -5,10 +5,11 @@
 //! compute the level of each `name() { … }` / `function name { … }` definition.
 //! Module-level ALL-CAPS assignments (optionally `readonly`/`declare -r`/…) are
 //! reported as constants. Bash has no class/type construct, so no `Class`
-//! signatures are produced. Pathological inputs (heredocs, backtick command
-//! substitution spanning lines) may be mis-handled; that is an accepted
-//! trade-off for the zero-dependency goal. The scanner never panics and always
-//! operates on whole `char`s.
+//! signatures are produced. Heredoc bodies (`<<EOF` / `<<-'EOF'` / `<< "EOF"`)
+//! are recognized and blanked so their contents cannot be mistaken for
+//! declarations. Backtick command substitution spanning lines may still be
+//! mis-handled; that is an accepted trade-off for the zero-dependency goal. The
+//! scanner never panics and always operates on whole `char`s.
 
 use super::Language;
 use crate::signature::{Kind, Signature};
@@ -17,11 +18,10 @@ pub struct BashLang;
 
 impl Language for BashLang {
     fn extract(&self, source: &str) -> Vec<Signature> {
-        // Pre-scrub every line, carrying quote state across line boundaries so
-        // multi-line strings hide any `def`-like text inside them.
-        let mut quote: Option<char> = None;
-        let cleaned: Vec<String> =
-            source.lines().map(|l| scrub_line(l, &mut quote)).collect();
+        // Pre-scrub every line, carrying quote state across line boundaries and
+        // blanking heredoc bodies so neither multi-line strings nor here-doc
+        // contents can be mistaken for declarations.
+        let cleaned = clean_source(source);
 
         let mut out = Vec::new();
         // Brace nesting depth (clamped at >= 0).
@@ -102,12 +102,49 @@ fn brace_delta(line: &str) -> i32 {
     d
 }
 
+/// A pending here-document whose body lines must be blanked until `delim` is
+/// seen alone on a line. `strip_tabs` is set for the `<<-` form, which allows
+/// the terminator (and body) to be indented with leading tabs.
+struct Heredoc {
+    delim: String,
+    strip_tabs: bool,
+}
+
+/// Scrub the whole source into per-line strings safe to scan: carries quote
+/// state across line boundaries and blanks every here-document body (and its
+/// terminator line) so their contents contribute no declarations or braces.
+fn clean_source(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut quote: Option<char> = None;
+    // Here-docs opened but not yet closed, in the order their bodies appear
+    // (bash reads multiple `<<A <<B` on one line in left-to-right order).
+    let mut pending: Vec<Heredoc> = Vec::new();
+
+    for raw in source.lines() {
+        if let Some(h) = pending.first() {
+            // Inside a here-doc body: blank the line, and close the doc when the
+            // terminator delimiter appears alone (leading tabs allowed for `<<-`).
+            let body = if h.strip_tabs { raw.trim_start_matches('\t') } else { raw };
+            if body.trim_end() == h.delim {
+                pending.remove(0);
+            }
+            out.push(String::new());
+            continue;
+        }
+        out.push(scrub_line(raw, &mut quote, &mut pending));
+    }
+
+    out
+}
+
 /// Remove the parts of a line that must not be scanned for declarations or
 /// braces: `#` comments, single/double-quoted strings, `${…}` parameter
 /// expansions and `$(…)` command/arithmetic substitutions. Removed regions are
 /// replaced with spaces. `quote` carries an open single/double quote across
-/// lines. Operates on whole `char`s so non-ASCII input is safe.
-fn scrub_line(line: &str, quote: &mut Option<char>) -> String {
+/// lines. Any here-doc opener (`<<word`) found is recorded in `heredocs` so the
+/// caller can blank the following body. Operates on whole `char`s so non-ASCII
+/// input is safe.
+fn scrub_line(line: &str, quote: &mut Option<char>, heredocs: &mut Vec<Heredoc>) -> String {
     let cs: Vec<char> = line.chars().collect();
     let n = cs.len();
     let mut out = String::with_capacity(n);
@@ -190,6 +227,66 @@ fn scrub_line(line: &str, quote: &mut Option<char>) -> String {
                     }
                     out.push(' ');
                     i += 1;
+                }
+            }
+            '<' if i + 1 < n && cs[i + 1] == '<' => {
+                if i + 2 < n && cs[i + 2] == '<' {
+                    // `<<<` here-string — not a here-doc; blank the operator.
+                    out.push(' ');
+                    out.push(' ');
+                    out.push(' ');
+                    i += 3;
+                } else {
+                    // `<<` / `<<-` here-doc operator: parse the delimiter word
+                    // (optionally quoted) and queue the doc; blank the operator
+                    // and delimiter so they are not scanned.
+                    out.push(' ');
+                    out.push(' ');
+                    i += 2;
+                    let mut strip_tabs = false;
+                    if i < n && cs[i] == '-' {
+                        strip_tabs = true;
+                        out.push(' ');
+                        i += 1;
+                    }
+                    while i < n && (cs[i] == ' ' || cs[i] == '\t') {
+                        out.push(cs[i]);
+                        i += 1;
+                    }
+                    let mut delim = String::new();
+                    if i < n && (cs[i] == '\'' || cs[i] == '"') {
+                        let q = cs[i];
+                        out.push(' ');
+                        i += 1;
+                        while i < n && cs[i] != q {
+                            delim.push(cs[i]);
+                            out.push(' ');
+                            i += 1;
+                        }
+                        if i < n {
+                            out.push(' ');
+                            i += 1;
+                        }
+                    } else {
+                        while i < n {
+                            let ch = cs[i];
+                            if ch == '_' || ch.is_alphanumeric() {
+                                delim.push(ch);
+                                out.push(' ');
+                                i += 1;
+                            } else if ch == '\\' {
+                                out.push(' ');
+                                i += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    // A purely numeric token is an arithmetic left-shift
+                    // (`1 << 4`), not a here-doc delimiter.
+                    if !delim.is_empty() && !delim.chars().all(|c| c.is_ascii_digit()) {
+                        heredocs.push(Heredoc { delim, strip_tabs });
+                    }
                 }
             }
             _ => {
@@ -440,6 +537,47 @@ mod tests {
     #[test]
     fn decl_in_string_ignored() {
         let src = "msg='not a func() {'\nreal() {\n  :\n}\n";
+        let s = sigs(src);
+        let funcs: Vec<&Signature> = s.iter().filter(|x| x.kind == Kind::Function).collect();
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].text, "real()");
+    }
+
+    #[test]
+    fn heredoc_body_ignored() {
+        // The quoted-delimiter here-doc body must not yield a fake constant or
+        // function; only the real assignment after it survives.
+        let src = "cat <<'EOF'\nFAKE_CONST=100\nfake_func() {\n  :\n}\nEOF\nREAL=1\n";
+        let s = sigs(src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].kind, Kind::Constant);
+        assert_eq!(s[0].text, "REAL = …");
+        assert_eq!(s[0].line, 7);
+    }
+
+    #[test]
+    fn nested_heredoc_no_fake_inner_func() {
+        let src = "myfunc() {\n  cat <<EOF\nfake() {\n}\nEOF\n}\n";
+        let s = sigs(src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "myfunc()");
+        assert_eq!(s[0].indent, 0);
+    }
+
+    #[test]
+    fn dash_heredoc_tab_indented_terminator() {
+        // `<<-` allows the terminator to be indented with tabs.
+        let src = "run() {\n\tcat <<-EOF\n\tfake() {}\n\tEOF\n}\n";
+        let s = sigs(src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "run()");
+    }
+
+    #[test]
+    fn arithmetic_shift_not_heredoc() {
+        // `1 << 4` is a left-shift, not a here-doc; the following lines must
+        // still be scanned normally.
+        let src = "(( X = 1 << 4 ))\nreal() {\n  :\n}\n";
         let s = sigs(src);
         let funcs: Vec<&Signature> = s.iter().filter(|x| x.kind == Kind::Function).collect();
         assert_eq!(funcs.len(), 1);
