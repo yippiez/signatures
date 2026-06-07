@@ -1,5 +1,0 @@
-MAX = …
-local function add(a, b)
-local Account = {}
-function Account.new(id)
-function Account:balance()

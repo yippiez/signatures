@@ -1,0 +1,174 @@
+@@CASE@@ comments_strings
+REAL_CONST = …
+class StringTricks
+  FAKE_DEF = …
+  FAKE_CLASS = …
+  FAKE_MODULE = …
+  def real_method
+  def method_with_escape
+  def heredoc_example
+  def percent_strings
+  TRAILING_COMMENT_CONST = …
+def real_top_level
+@@CASE@@ edge
+ZERO = …
+MAX_RETRIES = …
+EMPTY_ARY = …
+class MathOps
+  def +(other)
+  def -(other)
+  def *(other)
+  def ==(other)
+  def <=>(other)
+  def [](index)
+  def initialize(val)
+  def val
+class EndlessMethods
+  def double(x)
+  def square(x)
+  def negate(x)
+  def identity(x)
+  def zero?(x)
+  def triple(x)
+class MultilineSigs
+  def long_method(first_param, second_param, third_param, fourth_param = nil, **opts)
+  def configure(host:, port: 80, ssl: false, timeout: 30)
+  def self.factory(type, options = {})
+def noop
+def always_true
+def answer
+def forward(*args, &blk)
+def options_only(**opts)
+@@CASE@@ malformed
+WEIRD_CONST = …
+class Orphan
+  ORPHAN_LIMIT = …
+  def initialize
+  def too_many_close(x))
+module Reprise
+  FIRST = …
+module Reprise
+  SECOND = …
+  def self.sum
+def 
+class Outer
+  class Inner
+    DEEP = …
+    def deep_method(a, b, c)
+    def outer_method
+@@CASE@@ modules
+module Serializable
+  VERSION = …
+  def self.included(base)
+  module ClassMethods
+    def from_hash(hash)
+    def attribute_names
+  def to_hash
+  def to_json
+module Validatable
+  VALID_EMAIL_RE = …
+  def valid?
+  def errors
+  def validate!
+module Loggable
+  LOG_LEVELS = …
+  def self.included(base)
+class Person
+  SPECIES = …
+  def initialize(id, name, email)
+  def self.attribute_names
+  def self.create(attrs)
+  def adult?
+  def greet
+  def validate_email
+module MathHelpers
+  PI_APPROX = …
+  def circle_area(r)
+  def hypotenuse(a, b)
+@@CASE@@ nested
+module Outer
+  OUTER_VERSION = …
+  module Middle
+    MIDDLE_CONST = …
+    class Inner
+      INNER_LIMIT = …
+      def initialize(value)
+      def compute
+      def self.build(value)
+      class << self
+        def registry
+        def register(name, obj)
+    class AnotherInner < Inner
+      EXTRA = …
+      def initialize(value, label)
+      def to_s
+    def self.create_inner(value)
+    def self.version
+  class TopLevel
+    TOP_CONST = …
+    def initialize
+    def add(item)
+    def all
+  def self.configure
+module Standalone
+  def self.utility(x, y)
+@@CASE@@ realworld
+HTTP_OK = …
+HTTP_NOT_FOUND = …
+DEFAULT_PAGE_SIZE = …
+module Api
+  module V1
+    class UsersController
+      ALLOWED_PARAMS = …
+      def initialize(repo, logger)
+      def index(params = {})
+      def show(id)
+      def create(params)
+      def update(id, params)
+      def destroy(id)
+      def serialize(user)
+      def filter_params(raw)
+      def respond_with(status, body)
+module Api
+  module V1
+    class SessionsController
+      def create(credentials)
+      def destroy(token)
+      def authenticate(email, password)
+      def revoke(token)
+      def respond_with(status, body)
+def health_check
+@@CASE@@ sample
+MAX = …
+class Greeter
+  GREETING = …
+  def initialize(name)
+  def greet
+module Helpers
+  def self.run
+def add(a, b)
+@@CASE@@ unicode
+GREETING_ZH = …
+GREETING_JA = …
+GREETING_AR = …
+module Internationalization
+  LOCALE_DEFAULT = …
+  class Traductor
+    def initialize(locale)
+    def translate(key)
+    def lookup(key)
+    def self.supported_locales
+  module Emoji
+    THUMBS_UP = …
+    THUMBS_DOWN = …
+    PARTY = …
+    def self.decorate(text, icon)
+    def self.celebrate(msg)
+  class Formatter
+    NBSP = …
+    DASH = …
+    def format_title(title, subtitle = nil)
+    def format_list(items)
+    def sanitize(str)
+def greet(name, greeting = GREETING_ZH)
+def noop

@@ -1,6 +1,0 @@
-REAL_CONST = …
-LOG_LEVEL = …
-function real_function(a, b)
-local function another_real(x)
-Processor = {}
-function Processor.run(input)

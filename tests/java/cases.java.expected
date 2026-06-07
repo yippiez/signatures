@@ -1,0 +1,117 @@
+@@CASE@@ CommentsStrings
+public class CommentsStrings
+  public static final String GREETING = …
+  public CommentsStrings()
+  public String buildQuery(String table)
+  public String getTextBlock()
+  public int compute(int x)
+  public void realMethod()
+@@CASE@@ Edge
+public @interface Timed
+  String value() default ""
+  long timeoutMs() default 5000L
+@interface Marker
+  String description()
+public sealed class Shape
+  public static final double PI = …
+  public abstract double area()
+  public final class Circle extends Shape
+    public Circle(double radius)
+    public double area()
+    public double circumference()
+  public final class Rectangle extends Shape
+    public Rectangle(double width, double height)
+    public double area()
+    public double perimeter()
+enum Planet
+  static final double G = …
+  double surfaceGravity()
+  double surfaceWeight(double otherMass)
+record Point(int x, int y) implements Comparable<Point>
+  public static final Point ORIGIN = …
+  public double distanceTo(Point other)
+  public int compareTo(Point other)
+@@CASE@@ Generics
+public class Generics
+  public static final int DEFAULT_CAPACITY = …
+  public static <T> Optional<T> findFirst(List<T> items, java.util.function.Predicate<T> pred)
+  public static <K, V> Map<V, K> invertMap(Map<K, V> original)
+  public static <T extends Comparable<T>> T max(T a, T b)
+  public static <A, B, C> Function<A, C> compose(Function<A, B> f, Function<B, C> g)
+class Pair<A, B>
+  public static final String TYPE_NAME = …
+  public Pair(A first, B second)
+  public A getFirst()
+  public B getSecond()
+  public <C> Pair<C, B> mapFirst(Function<A, C> f)
+  public Pair<B, A> swap()
+  public String toString()
+interface Repository<T, ID>
+  Optional<T> findById(ID id)
+  List<T> findAll()
+  T save(T entity)
+  void deleteById(ID id)
+record Result<T>(T value, String error)
+  public boolean isSuccess()
+  public static <T> Result<T> ok(T value)
+  public static <T> Result<T> fail(String error)
+@@CASE@@ Nested
+public class Outer
+  public static final int VERSION = …
+  public Outer(int outerField)
+  public int getOuterField()
+  public static class StaticNested
+    public StaticNested(String name)
+    public String getName()
+    public class DeepInner
+      public void greet()
+  public class Inner
+    public static final String LABEL = …
+    public Inner(int value)
+    public int combined()
+  public interface Callback
+    void onEvent(String event)
+    default void onError(String msg)
+  public enum Priority
+    public boolean isUrgent()
+  public static Outer create(int v)
+interface TopLevel
+  void execute()
+@@CASE@@ RealWorld
+public class BankAccount
+  public static final String CURRENCY = …
+  public static final double MIN_BALANCE = …
+  private static final int MAX_TRANSACTIONS = …
+  public BankAccount(String accountId, double initialBalance)
+  public String getAccountId()
+  public double getBalance()
+  public void deposit(double amount)
+  public boolean withdraw(double amount)
+  public boolean transfer(BankAccount target, double amount)
+  public List<String> getTransactionLog()
+  public String toString()
+interface Auditable
+  List<String> getTransactionLog()
+  String getAccountId()
+enum AccountType
+@@CASE@@ Unicode
+public class Unicode
+  public static final String LANGUAGE = …
+  public Unicode(String données)
+  public String getDonnées()
+  public void setDonnées(String données)
+  public int longueur()
+interface Beschreibbar
+  String beschreiben()
+enum Richtung
+  public boolean istVertical()
+record Koordinate(double breite, double länge)
+  public double distanzZum(Koordinate andere)
+@@CASE@@ sample
+public class Account
+  static final double RATE = …
+  public Account(String id)
+  public double balance()
+interface Greeter
+  String greet()
+enum Status

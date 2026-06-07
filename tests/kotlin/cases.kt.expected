@@ -1,0 +1,214 @@
+@@CASE@@ comments_strings
+const val REAL_CONST = …
+class RealClass
+  val template: String = …
+  val singleLine: String = …
+  fun realMethod(input: String): String
+  fun anotherReal(): Int
+interface RealInterface
+  fun realAbstract(): Boolean
+  fun realWithDefault(): String
+object RealObject
+  val prop: Int = …
+  fun doReal()
+@@CASE@@ edge
+const val EMPTY_STRING = …
+const val NEGATIVE = …
+const val MAX_INT = …
+fun square(n: Int): Int
+fun cube(n: Int): Int
+fun identity(x: String): String
+fun String?.orEmpty2(): String
+fun Int?.orZero(): Int
+data class Vector(val x: Double, val y: Double)
+  operator fun plus(other: Vector): Vector
+  operator fun minus(other: Vector): Vector
+  operator fun times(scalar: Double): Vector
+  operator fun unaryMinus(): Vector
+  operator fun get(index: Int): Double
+infix fun Int.until2(to: Int): IntRange
+infix fun String.appendWith(separator: String): String.(String) -> String
+annotation class Retry(val times: Int = 3, val delay: Long = 100L)
+value class UserId(val value: Long)
+value class Email(val address: String)
+abstract class AbstractProcessor<T, R>
+  abstract fun process(input: T): R
+  abstract val name: String = …
+  open fun validate(input: T): Boolean
+  fun run(input: T): R?
+object Factory
+  operator fun invoke(type: String): Any
+  fun create(name: String): String
+tailrec fun factorial(n: Long, acc: Long = 1L): Long
+fun <T> listOfNonNull(vararg items: T?): List<T>
+inline fun <T> measure(block: () -> T): Pair<T, Long>
+suspend fun delayedEcho(message: String, delayMs: Long): String
+@@CASE@@ generics
+const val DEFAULT_CAPACITY = …
+interface Container<T>
+  fun add(item: T): Boolean
+  fun remove(item: T): Boolean
+  fun contains(item: T): Boolean
+  fun size(): Int
+  fun isEmpty(): Boolean
+interface Transformer<in A, out B>
+  fun transform(input: A): B
+interface Comparable2<T>
+  operator fun compareTo(other: T): Int
+data class Pair2<A, B>(val first: A, val second: B)
+  fun swap(): Pair2<B, A>
+  fun <C> mapFirst(f: (A) -> C): Pair2<C, B>
+class BoundedList<T : Comparable<T>>(private val capacity: Int = DEFAULT_CAPACITY) : Container<T>
+  private val items = …
+  override fun add(item: T): Boolean
+  override fun remove(item: T): Boolean
+  override fun contains(item: T): Boolean
+  override fun size(): Int
+  override fun isEmpty(): Boolean
+  fun min(): T?
+  fun max(): T?
+  fun <R : Comparable<R>> sortedBy(selector: (T) -> R): List<T>
+sealed class Result<out T, out E>
+  data class Ok<T>(val value: T) : Result<T, Nothing>()
+  data class Err<E>(val error: E) : Result<Nothing, E>()
+  fun isOk(): Boolean
+  fun isErr(): Boolean
+  fun <U> map(transform: (T) -> U): Result<U, E>
+inline fun <T, reified R> List<T>.filterIsInstanceAndMap(transform: (R) -> R): List<R>
+fun <T> List<T>.second(): T?
+fun <K, V> Map<K, V>.getOrThrow(key: K): V
+fun <T : Any> T?.orThrow(message: String = "Expected non-null value"): T
+fun <A, B, C> compose(f: (B) -> C, g: (A) -> B): (A) -> C
+object TypeUtils
+  inline fun <reified T> isType(value: Any): Boolean
+  fun <T> identity(value: T): T
+  fun <T, R> List<T>.mapNotNullTo(transform: (T) -> R?): List<R>
+@@CASE@@ malformed
+const val MISSING_TYPE_ANNOTATION = …
+val noExplicitType = …
+var mutableNoType = …
+fun noReturnType(x: Int)
+fun multiLineParams(param1: String, param2: Int, param3: Double, param4: Boolean, param5: List<String>, param6: Map<String, Any>): String
+class WeirdlyFormatted (val x : Int)
+  fun spaceyMethod () : String
+  val spaceyProp : Int = …
+class EmptyBody
+interface AllDefaults
+  fun one(): Int
+  fun two(): String
+  fun three(): Boolean
+fun deepGeneric(input: Map<String, List<Pair<Int, Set<Double>>>>): Map<String, Int>
+fun withLambda(action: (String, Int) -> Boolean): List<String>
+fun higherOrder(f: (Int) -> (String) -> Boolean): Boolean
+fun processPair(pair: Pair<String, Int>): String
+object Standalone
+  fun method()
+  val prop: String = …
+enum class Direction
+  fun opposite(): Direction
+class Config private constructor(val data: Map<String, String>)
+  companion object 
+    val EMPTY: Config = …
+    fun of(vararg pairs: Pair<String, String>): Config
+@@CASE@@ nested
+const val ROOT_VERSION = …
+class Outer(val name: String)
+  val outerProp: Int = …
+  fun outerMethod(): String
+  inner class Inner(val value: Double)
+    fun innerMethod(): Double
+    object InnerSingleton
+      const val MAGIC = …
+      fun create(): InnerSingleton
+  class StaticNested
+    val count: Int = …
+    fun increment(): Int
+    class DeepNested
+      fun deepMethod()
+      interface DeepInterface
+        fun deepAbstract(): Boolean
+  companion object 
+    const val TAG = …
+    var instanceCount: Int = …
+    fun newInstance(name: String): Outer
+  interface Callback
+    fun onSuccess(result: String)
+    fun onError(error: Throwable)
+    fun onComplete()
+  enum class State
+  sealed class Event
+    data class Success(val data: String) : Event()
+    data class Failure(val error: Throwable) : Event()
+    object Loading : Event()
+object TopLevelSingleton
+  val value: String = …
+  fun getValue(): String
+  object Nested
+    fun nestedFun()
+@@CASE@@ realworld
+const val API_BASE_URL = …
+const val DEFAULT_TIMEOUT_MS = …
+data class User(val id: Long, val name: String, val email: String, val role: UserRole)
+data class PagedResult<T>(val items: List<T>, val total: Int, val page: Int, val pageSize: Int)
+enum class UserRole
+interface UserRepository
+  suspend fun findById(id: Long): User?
+  suspend fun findAll(page: Int, pageSize: Int): PagedResult<User>
+  suspend fun save(user: User): User
+  suspend fun delete(id: Long): Boolean
+  fun observeChanges(): Flow<User>
+interface AuthService
+  suspend fun login(email: String, password: String): String
+  suspend fun logout(token: String)
+  suspend fun validateToken(token: String): Boolean
+  fun currentUser(): User?
+class UserRepositoryImpl(private val db: Database, private val cache: Cache) : UserRepository
+  override suspend fun findById(id: Long): User?
+  override suspend fun findAll(page: Int, pageSize: Int): PagedResult<User>
+  override suspend fun save(user: User): User
+  override suspend fun delete(id: Long): Boolean
+  override fun observeChanges(): Flow<User>
+  private fun Row.toUser(): User
+object AppConfig
+  val instance: AppConfig get() = …
+  fun load(path: String): Map<String, String>
+  fun get(key: String, default: String = ""): String
+fun <T> retry(times: Int, block: suspend () -> T): T
+suspend fun fetchUserProfile(id: Long, repo: UserRepository): User
+@@CASE@@ sample
+const val MAX = …
+class Greeter(val name: String)
+  fun greet(): String
+  suspend fun load()
+data class Point(val x: Int, val y: Int)
+interface Shape
+  fun area(): Double
+object Registry
+  fun register()
+@@CASE@@ unicode
+const val ПРИВЕТСТВИЕ = …
+const val 最大値 = …
+const val GREETING_AR = …
+data class Точка(val х: Double, val у: Double)
+data class 座標(val x: Double, val y: Double)
+interface Вычисляемый
+  fun вычислить(): Double
+  fun описание(): String
+class Геометрия : Вычисляемый
+  private val π = …
+  fun площадьКруга(радиус: Double): Double
+  fun длинаОкружности(радиус: Double): Double
+  override fun вычислить(): Double
+  override fun описание(): String
+object 数学ユーティリティ
+  const val 円周率 = …
+  fun 面積を計算(半径: Double): Double
+  fun 距離を計算(点1: Точка, 点2: Точка): Double
+fun сложить(а: Int, б: Int): Int
+fun `fun with spaces`(input: String): String
+@@CASE@@ unicode_const
+const val ÜBER_LIMIT = …
+const val 最大値 = …
+const val MAX = …
+object Math
+  const val π = …

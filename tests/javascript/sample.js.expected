@@ -1,8 +1,0 @@
-const MAX = …
-export const NAME = …
-export class Greeter
-  constructor(name)
-  greet()
-  async load()
-function add(a, b)
-const mul = (a, b) => a * b

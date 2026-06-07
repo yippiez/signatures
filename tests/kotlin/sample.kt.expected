@@ -1,9 +1,0 @@
-const val MAX = …
-class Greeter(val name: String)
-  fun greet(): String
-  suspend fun load()
-data class Point(val x: Int, val y: Int)
-interface Shape
-  fun area(): Double
-object Registry
-  fun register()

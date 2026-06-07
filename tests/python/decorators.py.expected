@@ -1,7 +1,0 @@
-def fib(n):
-class Account:
-  RATE = …
-  def balance(self):
-  def balance(self, value):
-  def fee():
-  def default(cls):

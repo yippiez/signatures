@@ -1,0 +1,126 @@
+@@CASE@@ comments_strings
+const RealConst = …
+func SomeFunc(a, b string) bool
+type RealType struct
+func (r RealType) RealMethod() error
+var multiLineStr = …
+func anotherFn() string
+type RealInterface interface
+@@CASE@@ edge
+const Sunday = …
+const Monday = …
+const Tuesday = …
+const Wednesday = …
+const Thursday = …
+const Friday = …
+const Saturday = …
+const FlagRead = …
+const FlagWrite = …
+const FlagExecute = …
+func Divide(a, b float64) (float64, error)
+func MinMax(nums []int) (min, max int)
+func Sum(vals ...int) int
+func Apply(f func(int) int, v int) int
+func Adder(x int) func(int) int
+func init()
+type FuncField struct
+type Doer interface
+type ReadWriteCloser interface
+var _ Doer = …
+func LongSig(firstName string, lastName string, age int, active bool) (string, error)
+var DefaultTimeout = …
+var DefaultRetries = …
+var DefaultHost = …
+type Node struct
+func (n *Node) Append(val int) *Node
+type Token struct{}
+func NewToken() Token
+@@CASE@@ generics
+type Ordered interface
+type Pair[A, B any] struct
+func NewPair[A, B any](first A, second B) Pair[A, B]
+func (p Pair[A, B]) Swap() Pair[B, A]
+type Stack[T any] struct
+func NewStack[T any]() *Stack[T]
+func (s *Stack[T]) Push(item T)
+func (s *Stack[T]) Pop() (T, bool)
+func (s *Stack[T]) Peek() (T, bool)
+func (s *Stack[T]) Len() int
+func Map[T, U any](slice []T, f func(T) U) []U
+func Filter[T any](slice []T, pred func(T) bool) []T
+func Reduce[T, U any](slice []T, init U, f func(U, T) U) U
+func Min[T cmp.Ordered](a, b T) T
+func Max[T cmp.Ordered](a, b T) T
+type Set[T comparable] struct
+func NewSet[T comparable]() *Set[T]
+func (s *Set[T]) Add(v T)
+func (s *Set[T]) Contains(v T) bool
+func (s *Set[T]) Remove(v T)
+func (s *Set[T]) Len() int
+type Result[T any] struct
+func Ok[T any](v T) Result[T]
+func Err[T any](err error) Result[T]
+func (r Result[T]) Unwrap() T
+func (r Result[T]) IsOk() bool
+@@CASE@@ nested
+type Address struct
+type Contact struct
+type Person struct
+func (p Person) FullName() string
+func (p *Person) UpdateContact(c Contact)
+type Organization struct
+func NewOrganization(name string) *Organization
+func (o *Organization) AddMember(p Person)
+func (o *Organization) FindMember(name string) (Person, bool)
+type Tree struct
+func NewTree(value int) *Tree
+func (t *Tree) Insert(value int) *Tree
+func (t *Tree) Height() int
+func (t *Tree) Walk(fn func(int))
+type Matrix struct
+func NewMatrix(rows, cols int) *Matrix
+func (m *Matrix) At(row, col int) float64
+func (m *Matrix) Set(row, col int, val float64)
+func (m *Matrix) Multiply(other *Matrix) (*Matrix, error)
+@@CASE@@ realworld
+const DefaultPort = …
+const MaxConnections = …
+const ReadTimeout = …
+var ErrNotFound = …
+var ErrUnauthorized = …
+type Config struct
+type Handler interface
+type Middleware interface
+type Server struct
+type Logger interface
+type RequestContext struct
+func NewServer(cfg Config, logger Logger) *Server
+func (s *Server) RegisterHandler(h Handler)
+func (s *Server) Use(mw Middleware)
+func (s *Server) Start(ctx context.Context) error
+func (s *Server) Stop(ctx context.Context) error
+func (s *Server) Addr() string
+func extractRequestContext(r *http.Request) RequestContext
+func writeJSON(w http.ResponseWriter, status int, v interface{}) error
+@@CASE@@ sample
+const Pi = …
+const MaxUsers = …
+type Point struct
+type Shape interface
+func (p Point) Distance(o Point) float64
+func Add(a, b int) int
+@@CASE@@ unicode
+type Числа struct
+const Δ = …
+const 最大値 = …
+func Grüßen(name string) string
+func 挨拶(名前 string) string
+type MathOps interface
+type Résumé struct
+func (r Résumé) Afficher() string
+const α = …
+const β = …
+const γ = …
+const φ = …
+type Töölö struct
+func NeuesToölö(lat, lon float64) Töölö

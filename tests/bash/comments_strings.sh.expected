@@ -1,7 +1,0 @@
-REAL_CONST = …
-REAL_READONLY = …
-real_function()
-function string_test()
-function heredoc_text()
-function double_quoted_heredoc()
-real_at_end()

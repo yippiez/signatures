@@ -1,6 +1,0 @@
-extern "C" {
-    fn ext_fn_one() -> i32;
-    fn ext_fn_two(x: f64) -> bool;
-}
-
-fn after() {}

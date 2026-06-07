@@ -3,24 +3,37 @@
 # tests/run.sh — run the `signatures` CLI against every fixture under tests/
 # and check its output, language by language.
 #
-# For each source file tests/<lang>/<name>.<ext> the runner runs
-#   signatures --no-color <file>
-# and compares stdout to a sibling snapshot tests/<lang>/<name>.<ext>.expected.
+# Fixtures live in one of two forms under tests/<lang>/:
 #
-#   (no args)        check every fixture against its .expected snapshot
+#   1. A merged case file  tests/<lang>/cases.<ext>  holding many cases, each
+#      introduced by a marker line  "@@CASE@@ <name>"  followed by that case's
+#      source. The expected output lives in tests/<lang>/cases.<ext>.expected
+#      using the SAME markers. Each case is run in isolation (its own binary
+#      invocation), so they cannot interfere — yet the file count never grows as
+#      cases are added. This is the primary form.
+#
+#   2. A loose fixture  tests/<lang>/<name>.<ext>  with a sibling snapshot
+#      tests/<lang>/<name>.<ext>.expected. Kept for byte-sensitive cases (e.g. a
+#      leading UTF-8 BOM) that a line-merged file cannot represent faithfully.
+#
+# For every case the runner runs  signatures --no-color <case>  and compares
+# stdout to its expected snapshot.
+#
+#   (no args)        check every case against its expected snapshot
 #   <lang> ...       only check those language folders (e.g. ./run.sh rust go)
-#   --record, -r     (re)generate the .expected snapshots from current output
+#   --record, -r     (re)generate the expected snapshots from current output
 #   --bin PATH       use a specific signatures binary (default target/debug)
 #   --help, -h       show this help
 #
-# A fixture with no .expected is a "smoke" check: it must not panic/crash, but
-# its output is not compared. Any panic, or any mismatch in non-record mode,
+# A case with no expected snapshot is a "smoke" check: it must not panic/crash,
+# but its output is not compared. Any panic, or any mismatch in non-record mode,
 # fails the run (exit 1).
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/target/debug/signatures"
+MARKER='@@CASE@@ '
 RECORD=0
 FILTERS=()
 
@@ -28,7 +41,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -r|--record) RECORD=1 ;;
     --bin) shift; BIN="$1" ;;
-    -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) FILTERS+=("$1") ;;
   esac
@@ -44,7 +57,6 @@ fi
 # Colors (only when stdout is a terminal).
 if [ -t 1 ]; then G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; D=$'\e[2m'; Z=$'\e[0m'; else G= R= Y= D= Z=; fi
 
-# Should this language folder be checked, given any filters?
 want() {
   [ ${#FILTERS[@]} -eq 0 ] && return 0
   local lang="$1" f
@@ -55,41 +67,111 @@ want() {
 pass=0; fail=0; smoke=0; rec=0
 declare -a FAILED
 tmp_out="$(mktemp)"; tmp_err="$(mktemp)"
-trap 'rm -f "$tmp_out" "$tmp_err"' EXIT
+WORK="$(mktemp -d)"
+trap 'rm -f "$tmp_out" "$tmp_err"; rm -rf "$WORK"' EXIT
 
-# Source fixtures: everything under tests/<lang>/ except snapshots, notes and docs.
-while IFS= read -r f; do
-  rel="${f#"$ROOT"/}"
-  lang="$(basename "$(dirname "$f")")"
-  want "$lang" || continue
-
-  "$BIN" --no-color "$f" >"$tmp_out" 2>"$tmp_err"
+# Run one case file and check it. $1=id (for reporting), $2=source file,
+# $3=expected file ("" if none / smoke). Honors RECORD (writes $3).
+check_case() {
+  local id="$1" src="$2" exp="$3"
+  "$BIN" --no-color "$src" >"$tmp_out" 2>"$tmp_err"
   if grep -q "panicked" "$tmp_err"; then
-    echo "${R}CRASH${Z} $rel"
+    echo "${R}CRASH${Z} $id"
     sed 's/^/    /' "$tmp_err" | head -3
-    fail=$((fail + 1)); FAILED+=("$rel (panic)"); continue
+    fail=$((fail + 1)); FAILED+=("$id (panic)"); return
   fi
-
-  exp="$f.expected"
   if [ "$RECORD" -eq 1 ]; then
-    cp "$tmp_out" "$exp"; rec=$((rec + 1)); echo "${Y}REC${Z}   $rel"; continue
+    [ -n "$exp" ] && { cp "$tmp_out" "$exp"; rec=$((rec + 1)); }
+    return
   fi
-
-  if [ -f "$exp" ]; then
+  if [ -n "$exp" ] && [ -f "$exp" ]; then
     if diff -u "$exp" "$tmp_out" >/dev/null 2>&1; then
       pass=$((pass + 1))
     else
-      echo "${R}FAIL${Z}  $rel"
+      echo "${R}FAIL${Z}  $id"
       diff -u "$exp" "$tmp_out" | sed -n '4,18p' | sed 's/^/    /'
-      fail=$((fail + 1)); FAILED+=("$rel")
+      fail=$((fail + 1)); FAILED+=("$id")
     fi
   else
     smoke=$((smoke + 1))
-    echo "${D}smoke${Z} $rel ${D}(no .expected — ran clean)${Z}"
+    echo "${D}smoke${Z} $id ${D}(no expected — ran clean)${Z}"
   fi
-done < <(find "$ROOT/tests" -type f \
-  ! -name '*.expected' ! -name '*.txt' ! -name '*.md' \
-  ! -path "$ROOT/tests/run.sh" | sort)
+}
+
+# Split a marker file ($1) into per-case files in dir ($2), named <case>.<sfx>
+# ($3). Prints the ordered, original case names (one per line).
+split_marker_file() {
+  awk -v d="$2" -v sfx="$3" -v m="$MARKER" '
+    index($0, m) == 1 {
+      raw = substr($0, length(m) + 1); sub(/[ \t\r]+$/, "", raw)
+      print raw
+      san = raw; gsub(/[^A-Za-z0-9_.-]/, "_", san)
+      cur = d "/" san "." sfx
+      printf "" > cur
+      next
+    }
+    cur { print > cur }
+  ' "$1"
+}
+
+sanitize() { printf '%s' "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'; }
+
+# Process a merged cases.<ext> file: split, then check each case in isolation.
+process_merged() {
+  local src="$1" exp="${1}.expected" rel ext wd
+  rel="${src#"$ROOT"/}"
+  ext="${src##*.}"
+  wd="$WORK/$(echo "$rel" | tr '/.' '__')"; mkdir -p "$wd"
+
+  local -a names
+  mapfile -t names < <(split_marker_file "$src" "$wd" "$ext")
+  [ -f "$exp" ] && split_marker_file "$exp" "$wd" "expected" >/dev/null
+
+  if [ "$RECORD" -eq 1 ]; then
+    local out="$wd/.recorded"; : >"$out"
+    local n san
+    for n in "${names[@]}"; do
+      san="$(sanitize "$n")"
+      printf '%s%s\n' "$MARKER" "$n" >>"$out"
+      "$BIN" --no-color "$wd/$san.$ext" 2>/dev/null >>"$out"
+    done
+    cp "$out" "$exp"; rec=$((rec + 1)); echo "${Y}REC${Z}   $rel (${#names[@]} cases)"
+    return
+  fi
+
+  local n san expf
+  for n in "${names[@]}"; do
+    san="$(sanitize "$n")"
+    expf="$wd/$san.expected"
+    [ -f "$expf" ] || expf=""
+    check_case "$rel::$n" "$wd/$san.$ext" "$expf"
+  done
+}
+
+# Walk language folders.
+for dir in "$ROOT"/tests/*/; do
+  [ -d "$dir" ] || continue
+  lang="$(basename "$dir")"
+  want "$lang" || continue
+
+  # Merged case files first.
+  while IFS= read -r mf; do
+    [ -e "$mf" ] || continue
+    process_merged "$mf"
+  done < <(find "$dir" -maxdepth 1 -type f -name 'cases.*' ! -name '*.expected' | sort)
+
+  # Then any loose fixtures (byte-sensitive cases, etc.).
+  while IFS= read -r f; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"
+    [ "${base#cases.}" != "$base" ] && continue   # skip cases.* (handled above)
+    rel="${f#"$ROOT"/}"
+    exp="$f.expected"
+    [ -f "$exp" ] || exp=""
+    check_case "$rel" "$f" "$exp"
+  done < <(find "$dir" -maxdepth 1 -type f \
+    ! -name '*.expected' ! -name '*.txt' ! -name '*.md' | sort)
+done
 
 echo
 if [ "$RECORD" -eq 1 ]; then

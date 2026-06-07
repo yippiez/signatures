@@ -1,0 +1,139 @@
+@@CASE@@ comments_strings
+const REAL_CONST = …
+class StringDecoyContainer
+  public const LABEL = …
+  public function getDoubleQuotedDecoy(): string
+  public function getSingleQuotedDecoy(): string
+  public function realMethod(): bool
+  public function anotherReal(int $n): int
+interface RealInterface
+  public function realInterfaceMethod(): string
+  public function anotherRealMethod(int $x): bool
+function realFunction(int $n): int
+function anotherRealFunction(string $s, bool $flag = false): ?string
+@@CASE@@ edge
+const TYPED_CONST = …
+abstract class AbstractBase
+  abstract public function mustImplement(): void
+  abstract protected function mustImplementProtected(int $x): string
+  public function concreteMethod(): string
+  final public function finalMethod(): bool
+  public static function abstractStatic(): void
+final class ConcreteChild extends AbstractBase
+  public const VERSION = …
+  public function __construct(private readonly string $name, protected int $count = 0)
+  public function mustImplement(): void
+  protected function mustImplementProtected(int $x): string
+  public function __toString(): string
+  public function __clone(): void
+  public static function withName(string $name): static
+interface Countable
+  public function count(): int
+interface Stringable
+  public function __toString(): string
+interface Both extends Countable, Stringable
+  public function isEmpty(): bool
+class NullableTypes
+  public function maybeNull(?string $s): ?int
+  public function unionTypes(int|string $val): bool|null
+  public function intersectionTypes(\Countable&\Iterator $col): void
+  public function neverReturn(): never
+  public static function voidStatic(): void
+function variadic(string $first, mixed ...$rest): array
+function withDefaultComplex(array $opts = [], ?callable $fn = null, int $flags = PHP_INT_SIZE): mixed
+@@CASE@@ modern
+enum Status: string
+  public function label(): string
+  public function isActive(): bool
+  public static function fromLabel(string $label): self
+enum Priority: int
+  public function isHigherThan(self $other): bool
+enum Suit
+  public function color(): string
+interface HasStatus
+  public function getStatus(): Status
+  public function setStatus(Status $status): void
+readonly class Point
+  public function __construct(public readonly float $x, public readonly float $y, public readonly float $z = 0.0)
+  public function distanceTo(self $other): float
+  public function translate(float $dx, float $dy, float $dz = 0.0): self
+class Pipeline
+  public function pipe(callable $stage): static
+  public function process(mixed $payload): mixed
+  public static function make(): static
+const DEFAULT_TIMEOUT = …
+function retry(callable $fn, int $times = 3, int $sleep = 0): mixed
+@@CASE@@ nested
+class Outer
+  public const OUTER_CONST = …
+  public function outerMethod(): void
+  public static function outerStatic(int $x, int $y): int
+  class Inner
+    public const INNER_CONST = …
+    public function innerMethod(string $s): string
+    class DeepInner
+      public function __construct(int $value)
+      public function getValue(): int
+      public static function create(int $v): static
+class Sibling
+  public function siblingMethod(): bool
+interface Contractable
+  public function bind(): void
+  public function release(): void
+interface ExtendedContract extends Contractable
+  public function inspect(): array
+function topLevelHelper(mixed $input): string
+@@CASE@@ realworld
+const API_VERSION = …
+class UserController extends BaseController
+  public const CACHE_TTL = …
+  private const SECRET_KEY = …
+  public function __construct(AuthService $authService)
+  public function index(Request $request): JsonResponse
+  public function show(int $id): JsonResponse
+  public function store(Request $request): JsonResponse
+  public function update(Request $request, int $id): JsonResponse
+  public function destroy(int $id): JsonResponse
+  protected static function resolveMiddleware(): array
+  private function authorize(string $ability): void
+interface ResourceController
+  public function index(Request $request): JsonResponse
+  public function show(int $id): JsonResponse
+  public function store(Request $request): JsonResponse
+  public function update(Request $request, int $id): JsonResponse
+  public function destroy(int $id): JsonResponse
+function sanitizeInput(string $input): string
+function paginateArray(array $items, int $perPage = 15, int $page = 1): array
+@@CASE@@ sample
+const MAX = …
+class Account
+  public const RATE = …
+  public function __construct($id)
+  public function balance()
+interface Greeter
+  public function greet(): string
+function add($a, $b)
+@@CASE@@ traits
+trait Timestamps
+  public const DATE_FORMAT = …
+  public function getCreatedAt(): ?\DateTimeImmutable
+  public function getUpdatedAt(): ?\DateTimeImmutable
+  public function touch(): void
+  protected function initTimestamps(): void
+trait SoftDeletes
+  public function delete(): void
+  public function restore(): void
+  public function isDeleted(): bool
+  public static function withTrashed(): array
+trait Serializable
+  abstract public function toArray(): array
+  public function toJson(int $flags = 0): string
+  public static function fromArray(array $data): static
+class Model
+  public const TABLE = …
+  public function __construct(int $id, string $name)
+  public function toArray(): array
+  public function getId(): int
+interface Persistable
+  public function save(): bool
+  public function delete(): void

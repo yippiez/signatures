@@ -1,8 +1,0 @@
-const MAX = …
-class Account
-  public const RATE = …
-  public function __construct($id)
-  public function balance()
-interface Greeter
-  public function greet(): string
-function add($a, $b)

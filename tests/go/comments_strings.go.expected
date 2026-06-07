@@ -1,7 +1,0 @@
-const RealConst = …
-func SomeFunc(a, b string) bool
-type RealType struct
-func (r RealType) RealMethod() error
-var multiLineStr = …
-func anotherFn() string
-type RealInterface interface

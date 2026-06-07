@@ -1,0 +1,186 @@
+@@CASE@@ comments_strings
+pub const REAL_CONST: u32 = …
+pub struct Config
+  pub fn new(value: u32) -> Self
+  pub fn describe(&self) -> &'static str
+  pub fn raw_describe(&self) -> &'static str
+  pub fn hashed_raw(&self) -> &'static str
+  pub fn multi_hashed(&self) -> &'static str
+  pub fn string_with_escapes(&self) -> String
+pub trait Describable
+  fn describe(&self) -> &'static str
+  fn describe(&self) -> &'static str
+pub fn process(cfg: &Config) -> u32
+static HELP_TEXT: &str = …
+@@CASE@@ const_continuation_multiline_fn
+const A: &str = …
+fn foo(x: i32) -> i32
+@@CASE@@ const_line_continuation
+const A: &str = …
+const B: u32 = …
+@@CASE@@ const_lt
+const A: bool = …
+const B: u32 = …
+@@CASE@@ const_shl
+const A: u32 = …
+const B: u32 = …
+@@CASE@@ const_unsafe_fn
+const unsafe fn my_fn(x: i32) -> i32
+@@CASE@@ edge
+pub struct Empty
+pub enum Void
+pub trait Marker
+pub const fn square(n: u32) -> u32
+pub static mut COUNTER: u64 = …
+pub fn noop()
+pub fn identity<T>(x: T) -> T
+pub fn add(a: i32, b: i32) -> i32
+pub type Result<T> = std::result::Result<T, String>
+pub type Callback = Box<dyn Fn(u32) -> u32 + Send + Sync>
+pub union Bits
+pub struct Opaque(u64)
+pub struct Point
+pub enum Direction
+pub trait Serialize
+  fn serialize(&self) -> Vec<u8>
+  fn serialized_size(&self) -> usize
+pub trait Deserialize: Sized
+  fn deserialize(bytes: &[u8]) -> Result<Self>
+  fn expected_size() -> usize
+pub const LOOKUP: [u8; 4] = …
+pub const MASK: u64 = …
+fn c_sqrt(x: f64) -> f64
+fn c_abs(x: i32) -> i32
+pub fn compact(x:u32)->u32
+pub struct Constrained<A, B, C>
+  pub fn new(a: A, b: B, c: C) -> Self
+@@CASE@@ extern_abi_decl
+extern "C" fn c_abi() -> i32
+pub unsafe extern "C" fn full_c_abi(x: *mut u8) -> bool
+extern "Rust" fn rust_abi()
+extern "system" fn sys_abi()
+@@CASE@@ extern_abi_fn
+extern "C" fn c_style() -> i32
+pub extern "C" fn pub_c_style() -> i32
+extern "Rust" fn rust_abi() -> i32
+extern fn default_abi() -> i32
+fn normal() -> i32
+@@CASE@@ extern_block
+fn ext_fn_one() -> i32
+fn ext_fn_two(x: f64) -> bool
+fn after()
+@@CASE@@ generics
+pub const INITIAL_CAPACITY: usize = …
+pub struct TypedMap<K, V>
+  pub fn new() -> Self
+  pub fn insert(&mut self, key: K, value: V) -> Option<V>
+  pub fn get(&self, key: &K) -> Option<&V>
+  fn default() -> Self
+pub trait Combinable<T, E>
+  type Output
+  fn combine<U, F>(self, other: Result<U, E>, f: F) -> Self::Output
+pub trait Stage<In, Out>
+  type Error: fmt::Debug
+  fn process(&mut self, input: In) -> Result<Out, Self::Error>
+  fn chain<S, Next>(self, next: S) -> Chained<Self, S>
+pub struct Chained<A, B>
+  type Error = B::Error
+  fn process(&mut self, input: In) -> Result<Out, Self::Error>
+  fn chain<S, Next>(self, next: S) -> Chained<Self, S>
+pub struct Tagged<T, Tag>
+  pub fn new(value: T) -> Self
+  pub fn map<U, F>(self, f: F) -> Tagged<U, Tag>
+pub fn merge_filtered<I, J, T, P>(left: I, right: J, predicate: P) -> impl Iterator<Item = T>
+pub fn apply_to_str<F>(s: &str, f: F) -> String
+@@CASE@@ macro_rules
+fn real()
+@@CASE@@ nested
+pub const ROOT_VERSION: &str = …
+  pub const MAX_WORKERS: usize = …
+  pub struct Settings
+    pub fn default() -> Self
+    pub fn with_workers(mut self, n: usize) -> Self
+    pub const DEFAULT_LEVEL: &str = …
+    pub enum Level
+      pub fn from_str(s: &str) -> Option<Level>
+      pub fn as_str(&self) -> &'static str
+    pub trait Sink
+      fn write_record(&mut self, level: &Level, message: &str)
+      fn flush(&mut self)
+    pub struct ConsoleSink
+      pub fn new(prefix: impl Into<String>) -> Self
+      fn write_record(&mut self, level: &Level, message: &str)
+      fn flush(&mut self)
+    pub const DEFAULT_PATH: &str = …
+    pub const BUFFER_SIZE: usize = …
+    pub struct DiskStore
+      pub fn open(path: impl Into<std::path::PathBuf>) -> std::io::Result<Self>
+      pub fn buf_size(&self) -> usize
+      fn flush_buffers(&mut self) -> std::io::Result<()>
+  pub struct Handle
+    pub fn spawn<F>(&self, future: F)
+    pub fn block_on<F, T>(&self, future: F) -> T
+  pub fn current() -> Handle
+@@CASE@@ realworld
+pub const MAX_REDIRECTS: u32 = …
+pub const DEFAULT_TIMEOUT: Duration = …
+static USER_AGENT: &str = …
+pub enum ClientError
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+pub struct Response
+  pub fn text(&self) -> Result<&str, ClientError>
+  pub fn is_success(&self) -> bool
+pub struct ClientBuilder
+  pub fn new() -> Self
+  pub fn timeout(mut self, duration: Duration) -> Self
+  pub fn default_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self
+  pub fn build(self) -> HttpClient
+pub struct HttpClient
+  pub async fn get(&self, url: &str) -> Result<Response, ClientError>
+  pub async fn post(&self, url: &str, body: Option<Vec<u8>>) -> Result<Response, ClientError>
+  async fn send(&self, method: &str, url: &str, body: Option<Vec<u8>>) -> Result<Response, ClientError>
+pub trait RetryPolicy
+  fn max_attempts(&self) -> u32
+  fn delay(&self, attempt: u32) -> Duration
+pub struct ExponentialBackoff
+  fn max_attempts(&self) -> u32
+  fn delay(&self, attempt: u32) -> Duration
+pub fn parse_mime_type(content_type: &str) -> &str
+pub fn url_encode(value: &str) -> String
+@@CASE@@ sample
+const MAX_RETRIES: u32 = …
+static GREETING: &str = …
+pub struct Point
+  pub fn new(x: i32, y: i32) -> Self
+  async fn distance(&self, other: &Point) -> f64
+pub trait Shape
+  fn area(&self) -> f64
+pub enum Color
+fn main()
+@@CASE@@ string_literal_in_fn
+fn f()
+@@CASE@@ string_literal_static
+static S: &str = …
+fn real(y: i32) -> i32
+@@CASE@@ trait_assoc_const
+trait Foo
+  const BAR: usize
+@@CASE@@ unicode
+pub const LICHTGESCHWINDIGKEIT: f64 = …
+pub const KREISZAHL_PI: f64 = …
+pub struct Koordinate
+  pub fn neu(länge: f64, breite: f64) -> Self
+  pub fn abstand(&self, andere: &Koordinate) -> f64
+pub trait Grüßen
+  fn grüß_gott(&self) -> String
+  fn auf_wiedersehen(&self) -> String
+pub struct DeutscherGreeter
+  fn grüß_gott(&self) -> String
+  fn auf_wiedersehen(&self) -> String
+pub fn zeichenanzahl(s: &str) -> usize
+pub fn umkehren(s: &str) -> String
+pub struct 辞書<K, V>
+  pub fn neu() -> Self
+  pub fn einfügen(&mut self, schlüssel: K, wert: V)
+  pub fn suchen(&self, schlüssel: &K) -> Option<&V>
+pub fn café_name() -> &'static str

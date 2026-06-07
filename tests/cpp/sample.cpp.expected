@@ -1,6 +1,0 @@
-namespace app
-  constexpr int MAX = …
-  class Vec
-    T at(int i) const
-  struct Point
-  int add(int a, int b)

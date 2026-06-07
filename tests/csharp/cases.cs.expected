@@ -1,0 +1,184 @@
+@@CASE@@ CommentsStrings
+namespace Demo.CommentsStrings
+  public class RealClass
+    private const string HelpText = …
+    private static readonly string SqlQuery = …
+    private static readonly string RawLiteral = …
+    public void RealMethod()
+    public const int RealConst = …
+  public interface IRealInterface
+    void RealWork()
+    int RealCompute(double value)
+  public enum RealEnum
+  public struct RealStruct
+    public RealStruct(int value)
+    public override string ToString()
+  public static class StringHelper
+@@CASE@@ Edge
+namespace Edge
+  public class LegacyClass
+    public const int Version = …
+    public LegacyClass()
+    public void OldMethod()
+    public void NewMethod()
+  public partial class PartialWidget
+    public const string Kind = …
+    partial void OnIdChanged(int newId)
+  public partial class PartialWidget
+    partial void OnIdChanged(int newId)
+    public override string ToString()
+  public class EmptyClass
+  public struct Point
+  public readonly struct Vector2
+    public Vector2(float x, float y)
+    public override string ToString()
+  public interface IPrintable
+    void Print()
+    string Format(string template)
+  public class Document : IPrintable
+    public const string DefaultTemplate = …
+    public void Print()
+  public static class LongSignatures
+    public static Dictionary<string, List<Tuple<int, string, bool>>> BuildComplexMap(IEnumerable<string> keys, Func<string, int> indexer, Func<string, string> namer, Func<string, bool> validator)
+  public enum ErrorCode
+  public record LogEntry(DateTime Timestamp, string Message, int Level)
+    public static readonly LogEntry Empty = …
+    public bool IsError()
+    public string Format()
+@@CASE@@ Generics
+namespace Demo.Generics
+  public readonly struct Result<T, TError>
+    public Result(T value)
+    public Result(TError error)
+    public TOut Match<TOut>(Func<T, TOut> onOk, Func<TError, TOut> onError)
+  public interface IRepository<TEntity, TKey>
+    IEnumerable<TEntity> FindAll()
+    void Save(TEntity entity)
+    bool Delete(TKey id)
+  public class InMemoryRepository<TEntity, TKey> : IRepository<TEntity, TKey>
+    public const int InitialCapacity = …
+    public InMemoryRepository(Func<TEntity, TKey> keySelector)
+    public IEnumerable<TEntity> FindAll()
+    public void Save(TEntity entity)
+    public bool Delete(TKey id)
+  public sealed class Pipeline<TIn, TOut>
+    private Pipeline(Func<TIn, TOut> step)
+    public static Pipeline<TIn, TIn> Start()
+    public TOut Run(TIn input)
+  public static class GenericExtensions
+    public static void ForEach<T>(this IEnumerable<T> source, Action<T> action)
+    public static TAccum Fold<TItem, TAccum>(this IEnumerable<TItem> source, TAccum seed, Func<TAccum, TItem, TAccum> accumulator)
+  public static class ComparerFactory
+  public enum SortDirection
+  public delegate TResult Transformer<TIn, TOut, TResult>(TIn input, TOut context)
+@@CASE@@ Nested
+namespace Outer
+  namespace Inner
+    namespace Deep
+      public class Root
+        public const int RootConst = …
+        public int RootMethod(string s)
+        public class ChildA
+          private static readonly string Label = …
+          public string GetLabel()
+          public struct GrandchildStruct
+            public GrandchildStruct(int x, int y)
+            public override string ToString()
+          public enum GrandchildEnum
+        public interface IChildB
+          void DoWork()
+          int ComputeValue(double input)
+        protected class ChildC : IChildB
+          public void DoWork()
+          public int ComputeValue(double input)
+          private sealed class GreatGrandchild
+            public const string Tag = …
+            public void Run()
+  namespace Sibling
+    public static class SiblingHelper
+      public static int Add(int a, int b)
+      public static int Multiply(int a, int b)
+    public abstract class SiblingBase
+      public abstract void Execute()
+      public virtual string Describe()
+    public class ConcreteSibling : SiblingBase
+      public override void Execute()
+      public override string Describe()
+@@CASE@@ RealWorld
+namespace Acme.Commerce.Api
+  public record Product(int Id, string Name, decimal Price, int Stock)
+  public record ServiceResult<T>(bool Success, T? Value, string? Error)
+    public static ServiceResult<T> Ok(T value)
+    public static ServiceResult<T> Fail(string error)
+  public interface IProductRepository
+    Task<Product?> GetByIdAsync(int id, CancellationToken ct = default)
+    Task<IReadOnlyList<Product>> ListAsync(int page, int pageSize, CancellationToken ct = default)
+    Task<Product> AddAsync(Product product, CancellationToken ct = default)
+    Task<bool> UpdateStockAsync(int id, int delta, CancellationToken ct = default)
+    Task<bool> DeleteAsync(int id, CancellationToken ct = default)
+  public class ProductService
+    public const int MaxPageSize = …
+    public const int DefaultPageSize = …
+    private static readonly TimeSpan CacheExpiry = …
+    public ProductService(IProductRepository repo)
+    public async Task<ServiceResult<Product>> GetProductAsync(int id, CancellationToken ct = default)
+    public async Task<ServiceResult<IReadOnlyList<Product>>> ListProductsAsync(int page = 1, int pageSize = DefaultPageSize, CancellationToken ct = default)
+    public async Task<ServiceResult<Product>> CreateProductAsync(string name, decimal price, int stock, CancellationToken ct = default)
+    public async Task<ServiceResult<bool>> AdjustStockAsync(int id, int delta, CancellationToken ct = default)
+  public class ProductsController
+    public ProductsController(ProductService service)
+    public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = ProductService.DefaultPageSize, CancellationToken ct = default)
+    public async Task<IActionResult> GetById(int id, CancellationToken ct = default)
+    public async Task<IActionResult> Create([FromBody] CreateProductRequest req, CancellationToken ct = default)
+  public record CreateProductRequest(string Name, decimal Price, int Stock)
+  public static class PriceHelper
+    public static readonly decimal VatRate = …
+    public static readonly string CurrencySymbol = …
+    public static decimal AddVat(decimal net)
+    public static string Format(decimal amount)
+@@CASE@@ Unicode
+namespace Büro.Verwaltung
+  public class Konfiguration
+    public const string Standardwert = …
+    public static readonly int MaximalAnzahl = …
+    public Konfiguration(string name, int anzahl)
+    public bool IstGültig()
+    public override string ToString()
+  public class Sammlung<T>
+    private readonly List<T> _elemente = …
+    public void Hinzufügen(T element)
+    public bool Enthält(T element)
+    public T DiesesElement(int index)
+  public interface IVerarbeitbar
+    void Verarbeiten()
+    string Beschreiben()
+  public enum Zustand
+  public struct Koordinate
+    public Koordinate(double breite, double länge)
+    public double Abstand(Koordinate andere)
+namespace 日本語.名前空間
+  public class 辞書クラス<キー, 値>
+    private readonly Dictionary<キー, 値> _データ = …
+    public void 追加(キー key, 値 value)
+    public bool 含む(キー key)
+    public 値 取得(キー key)
+  public interface I検索可能<T>
+    T 検索(string クエリ)
+    bool 存在する(string クエリ)
+  public static class テキストヘルパー
+    public const string 改行 = …
+@@CASE@@ expression_bodies
+class Calc
+  public int Add(int a, int b)
+  public double Half(double x)
+  public int Block(int n)
+  public T Echo<T>(T value)
+@@CASE@@ sample
+namespace App
+public class Account
+  public const double Rate = …
+  public Account(string id)
+  public double Balance()
+public interface IGreeter
+  string Greet()
+public enum Status

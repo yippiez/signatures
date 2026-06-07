@@ -1,0 +1,83 @@
+@@CASE@@ comments_strings
+REAL_CONST = …
+LOG_LEVEL = …
+function real_function(a, b)
+local function another_real(x)
+Processor = {}
+function Processor.run(input)
+@@CASE@@ edge
+MAX_UINT = …
+PI_APPROX = …
+function compute(alpha, beta, gamma)
+function noop()
+function log(fmt, ...)
+local Buf = {}
+function Buf:write(data)
+function Buf:flush()
+RETRY_DELAY = …
+ERROR_CODE_TIMEOUT = …
+function util.clamp(v, lo, hi)
+function broken(a, b return a end function after_broken(x) return x end
+@@CASE@@ modules
+local M = {}
+API_VERSION = …
+BASE_URL = …
+REQUEST_TIMEOUT = …
+Config = {}
+function Config.defaults()
+function Config.merge(base, overrides)
+M.serialize = function(data)
+M.deserialize = function(text)
+local function validate_key(key)
+function M.set(key, value)
+function M.get(key)
+@@CASE@@ nested
+CACHE_SIZE = …
+function make_counter(start)
+  local function increment(step)
+  local function reset()
+  local function get()
+function make_pipeline(transforms)
+  local function apply(value)
+    local function run(index, v)
+local function memoize(fn)
+  local function lookup(key)
+  local function store(key, value)
+@@CASE@@ oop
+Animal = {}
+function Animal.new(name, sound)
+function Animal:speak()
+function Animal:getName()
+function Animal.from_table(t)
+Dog = setmetatable(...)
+function Dog.new(name)
+function Dog:fetch(item)
+function Dog:sit()
+local Shape = {}
+function Shape.new(kind)
+function Shape:area()
+function Shape:describe()
+@@CASE@@ realworld
+local M = {}
+VERSION = …
+DEFAULT_TIMEOUT = …
+MAX_RETRIES = …
+local Router = {}
+function Router.new(prefix)
+function Router:get(path, handler)
+function Router:post(path, handler)
+function Router:dispatch(req)
+local function build_url(host, path, params)
+function M.encode_query(params)
+function M.create_router(prefix)
+@@CASE@@ sample
+MAX = …
+local function add(a, b)
+local Account = {}
+function Account.new(id)
+function Account:balance()
+@@CASE@@ string_constants
+NAME = …
+VERSION = …
+PATH = …
+MAX = …

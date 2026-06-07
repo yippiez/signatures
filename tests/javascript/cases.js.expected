@@ -1,0 +1,134 @@
+@@CASE@@ comments_strings
+const REAL_CONST = …
+function parseTemplate(template)
+class StringHolder
+  constructor()
+  getSingle()
+  getDouble()
+  getBacktick()
+function realFunction(a, b)
+const arrowReal = (x) => x * 2
+@@CASE@@ edge
+export const CONFIG = …
+export const transform = (input, options = {}) =>
+export const compose = (...fns) => x => fns.reduceRight((v, f) => f(v), x)
+class Validator
+  constructor({ strict = false, maxLength = 255 } = {})
+  addRule(name, fn)
+  validate(value, ruleName)
+  get ruleCount()
+class ExtendedArray extends Array
+  constructor(...args)
+  first()
+  last()
+  groupBy(keyFn)
+      const key = …
+function* fibonacci()
+export function parseArgs(argv = process.argv.slice(2))
+      const [key, val = true] = …
+@@CASE@@ malformed
+const WEIRD_SPACING = …
+const TRAILING = …
+const noSemi = …
+const alsoNoSemi = …
+class BrokenIndent
+  constructor(x,y)
+  weirdMethod (a, b)
+  static fromPair([a,b])
+function multipleReturns(x)
+function empty()
+const double = x => x * 2
+const wait = async (ms) => new Promise(r => setTimeout(r, ms))
+class EmptyClass
+class Oneliner
+function trailingCommaParams(a, b, c)
+const obj = …
+  method()
+@@CASE@@ modern
+export const VERSION = …
+export class AsyncQueue
+  static empty()
+  get size()
+  get isEmpty()
+  set capacity(n)
+  enqueue(item)
+      const resolve = …
+  async dequeue()
+export async function fetchAll(urls)
+export async function* streamLines(reader)
+    const lines = …
+export function* range(start, end, step = 1)
+export function* zip(...iterables)
+  const iterators = iterables.map(it => it[Symbol.iterator]())
+    const results = iterators.map(it => it.next())
+const retry = async (fn, times = 3) =>
+const debounce = (fn, delay) =>
+@@CASE@@ nested
+const ROOT_KEY = …
+class Outer
+  constructor(value)
+  getInner()
+    class Inner
+      constructor(x)
+      compute()
+  makeCounter()
+    function increment()
+    function reset()
+  static create(value)
+function pipeline(...fns)
+const memoize = (fn) =>
+    const key = …
+    const result = …
+function makeAdder(x)
+class EventBus
+  constructor()
+  on(event, handler)
+  off(event, handler)
+  emit(event, ...args)
+@@CASE@@ realworld
+export const DEFAULT_TIMEOUT = …
+export const BASE_URL = …
+const MAX_RETRIES = …
+export class HttpError extends Error
+  constructor(status, message)
+  isClientError()
+  isServerError()
+  toString()
+export class HttpClient extends EventEmitter
+  constructor(baseUrl, options)
+  get defaultHeaders()
+  set authToken(token)
+  addInterceptor(fn)
+  async get(path, params)
+  async post(path, body)
+  async put(path, body)
+  async _request(method, path, body, params)
+        const res = …
+export function createClient(baseUrl, options)
+@@CASE@@ sample
+const MAX = …
+export const NAME = …
+export class Greeter
+  constructor(name)
+  greet()
+  async load()
+function add(a, b)
+const mul = (a, b) => a * b
+@@CASE@@ unicode
+const π = …
+const τ = …
+const ε = …
+function вычислить(значение, коэффициент)
+function calculerAire(rayon)
+class Ñoño
+  constructor(nombre)
+  saludar()
+  get descripción()
+  set descripción(valor)
+class 数学Utils
+  static 加法(甲, 乙)
+  static 乗法(甲, 乙)
+const μ = (σ, n) => σ / Math.sqrt(n)
+const ƒormatter = …
+function résoudre(équation, variable)
+async function récupérerDonnées(url)

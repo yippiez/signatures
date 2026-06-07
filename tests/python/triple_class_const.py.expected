@@ -1,3 +1,0 @@
-class Real:
-  PATTERN = …
-  def method(self):

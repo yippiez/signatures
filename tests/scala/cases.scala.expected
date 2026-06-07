@@ -1,0 +1,256 @@
+@@CASE@@ comments_strings
+trait RealTrait
+  def realMethod(): String
+object StringLiterals
+  val greeting: String = …
+  val template: String = …
+  val name: String = …
+  val msg: String = …
+  val multiLineIgnored: String = …
+  def realDef(x: Int): Int
+class BlockCommentHolder
+  val realVal: Double = …
+  def realMethod(): Boolean
+  val anotherReal: String = …
+object NestedStringEdgeCases
+  val tricky: String = …
+  val raw: String = …
+  val legitimate: Int = …
+  def compute(s: String): Int
+@@CASE@@ edge
+trait HasLogger
+  lazy val logger: String = …
+  def log(msg: String): Unit
+object LazyVals
+  lazy val expensiveComputation: Int = …
+  lazy val cachedList: List[String] = …
+  val eagerVal: Double = …
+  lazy val anotherLazy: Boolean = …
+  def useLazy(): Int
+trait TypeMembers
+  type Element
+  type Container[A]
+  type Mapping = Map[String, Element]
+  def createElement(): Element
+  def wrap[A](a: A): Container[A]
+class LegacyImplicits
+  implicit val defaultTimeout: Int = …
+  implicit def stringToInt(s: String): Int
+  def compute(x: Int)(implicit timeout: Int): String
+  def process[A](items: List[A])(implicit ord: Ordering[A]): List[A]
+object GivenUsing
+  trait Show[A]
+    def show(a: A): String
+    def show(a: Int): String
+    def show(a: List[A]): String
+  def display[A](a: A)(using s: Show[A]): String
+  def displayAll[A: Show](items: List[A]): String
+class MultiParam
+  def threeGroups(a: Int)(b: String, c: Boolean)(d: Double): String
+  def curriedAdd(x: Int)(y: Int)(z: Int): Int
+  def withContext[A](value: A)(using ctx: String, n: Int): String
+object TypeAliases
+  type StringMap[V] = Map[String, V]
+  type Callback[A] = A => Unit
+  type BiFunc[A, B, C] = (A, B) => C
+  type NestedOption[A] = Option[Option[A]]
+  val handlers: StringMap[Callback[Int]] = …
+  lazy val registry: StringMap[List[String]] = …
+  def register(key: String)(handler: Callback[Int]): StringMap[Callback[Int]]
+  def lookup(key: String): Option[Callback[Int]]
+class Malformed
+  def noReturnType()
+  def weirdSpacing (x : Int) : String
+  def +(other: Malformed)
+  def unary_-
+@@CASE@@ generics
+trait Functor[F[_]]
+  def map[A, B](fa: F[A])(f: A => B): F[B]
+trait Monad[F[_]] extends Functor[F]
+  def pure[A](a: A): F[A]
+  def flatMap[A, B](fa: F[A])(f: A => F[B]): F[B]
+trait Ordering[A]
+  def compare(x: A, y: A): Int
+  def lt(x: A, y: A): Boolean
+  def gt(x: A, y: A): Boolean
+class SortedList[A: Ordering]
+  private val underlying: mutable.ArrayBuffer[A] = …
+  def add(elem: A): Unit
+  def toList: List[A]
+  def min: Option[A]
+  def max: Option[A]
+trait Codec[A]
+  def encode(a: A): String
+  def decode(s: String): Either[String, A]
+object Codec
+  def apply[A](using c: Codec[A]): Codec[A]
+    def encode(a: Int): String
+    def decode(s: String): Either[String, Int]
+    def encode(a: Boolean): String
+    def decode(s: String): Either[String, Boolean]
+class Pair[+A, +B](val first: A, val second: B)
+  def swap: Pair[B, A]
+  def mapFirst[C](f: A => C): Pair[C, B]
+  def mapSecond[C](f: B => C): Pair[A, C]
+trait Bounded[A]
+  def minValue: A
+  def maxValue: A
+object Bounded
+    def minValue: Int
+    def maxValue: Int
+    def minValue: Double
+    def maxValue: Double
+  def clamp[A: Bounded: Ordering](value: A): A
+def identity[A](a: A): A
+def const[A, B](a: A)(b: B): A
+def compose[A, B, C](f: B => C)(g: A => B): A
+class Container[A <: AnyRef](private var value: A)
+  def get: A
+  def set(newValue: A): Unit
+  def transform[B <: AnyRef](f: A => B): Container[B]
+@@CASE@@ nested
+object Outer
+  val outerVal: String = …
+  class Inner
+    val innerVal: Int = …
+    object DeepInner
+      val deepVal: Boolean = …
+      def deepMethod(x: Int): Int
+      class Deepest
+        def hello(): String
+    def innerMethod(): Unit
+  trait InnerTrait
+    def abstractMethod(): String
+    def concreteMethod(): Int
+  object InnerObject extends InnerTrait
+    val name: String = …
+    def abstractMethod(): String
+    def extra(): Boolean
+  def outerMethod(i: Inner): String
+class Outer2
+  class Level1
+    class Level2
+      def method(): Int
+      val constant: Long = …
+    val l2Instance: Level2 = …
+    def level1Method(): String
+  trait Level1Trait
+    trait Nested
+      def nestedAbstract(): Double
+    def parentMethod(): Unit
+  def makeLevel1(): Level1
+object Config
+  object Database
+    val host: String = …
+    val port: Int = …
+    object Pool
+      val maxConnections: Int = …
+      val timeout: Long = …
+      def isHealthy(): Boolean
+  object Server
+    val host: String = …
+    val port: Int = …
+    def bindAddress(): String
+@@CASE@@ realworld
+trait Repository[A, ID]
+  def findById(id: ID): Future[Option[A]]
+  def findAll(): Future[List[A]]
+  def save(entity: A): Future[A]
+  def delete(id: ID): Future[Boolean]
+case class ProductId(value: Long)
+case class UserId(value: Long)
+case class Product(id: ProductId, name: String, price: BigDecimal, stock: Int)
+case class User(id: UserId, email: String, name: String)
+case class OrderLine(product: Product, quantity: Int)
+  def subtotal: BigDecimal
+case class Order(id: Long, user: User, lines: List[OrderLine])
+  def total: BigDecimal
+  def itemCount: Int
+trait ProductRepository extends Repository[Product, ProductId]
+  def findByName(name: String): Future[List[Product]]
+  def findInStock(): Future[List[Product]]
+  def updateStock(id: ProductId, delta: Int): Future[Boolean]
+trait OrderRepository extends Repository[Order, Long]
+  def findByUser(userId: UserId): Future[List[Order]]
+  def findRecent(limit: Int): Future[List[Order]]
+class OrderService(orders: OrderRepository, products: ProductRepository)(using ec: ExecutionContext)
+  val MaxOrderLines: Int = …
+  val MinimumOrderAmount: BigDecimal = …
+  def placeOrder(user: User, lines: List[OrderLine]): Future[Order]
+  def cancelOrder(orderId: Long): Future[Boolean]
+  def getOrderSummary(userId: UserId): Future[String]
+  private def validateLines(lines: List[OrderLine]): Boolean
+object OrderService
+  val ServiceVersion: String = …
+  def apply(orders: OrderRepository, products: ProductRepository)(using ec: ExecutionContext): OrderService
+@@CASE@@ sample
+object Constants
+  val Max = …
+class Greeter(name: String)
+  def greet(): String
+trait Shape
+  def area: Double
+case class Point(x: Int, y: Int)
+@@CASE@@ sealed
+sealed trait Expr
+  def eval: Double
+  def stringify: String
+case class Num(value: Double) extends Expr
+  def eval: Double
+  def stringify: String
+case class Add(left: Expr, right: Expr) extends Expr
+  def eval: Double
+  def stringify: String
+case class Mul(left: Expr, right: Expr) extends Expr
+  def eval: Double
+  def stringify: String
+case class Neg(expr: Expr) extends Expr
+  def eval: Double
+  def stringify: String
+object Expr
+  val Zero: Expr = …
+  val One: Expr = …
+  def simplify(e: Expr): Expr
+  def toHex: String
+  def area: Double
+sealed abstract class Result[+A]
+  def isOk: Boolean
+  def getOrElse[B>: A](default: B): B
+final case class Ok[+A](value: A) extends Result[A]
+  def isOk: Boolean
+  def getOrElse[B>: A](default: B): B
+final case class Err(message: String) extends Result[Nothing]
+  def isOk: Boolean
+  def getOrElse[B](default: B): B
+object Result
+  def fromOption[A](opt: Option[A], msg: String): Result[A]
+  def sequence[A](results: List[Result[A]]): Result[List[A]]
+@@CASE@@ unicode
+trait 形状
+  def 面積(): Double
+  def 周囲(): Double
+class 円(半径: Double) extends 形状
+  val π: Double = …
+  def 面積(): Double
+  def 周囲(): Double
+  def 直径(): Double
+case class 点(x座標: Double, y座標: Double)
+  def 距離(other: 点): Double
+object 数学定数
+  val π: Double = …
+  val e: Double = …
+  val φ: Double = …
+  def 絶対値(x: Double): Double
+  def 平方根(x: Double): Double
+trait Ψ[A]
+  def ψ(a: A): A
+  def φ(a: A, b: A): A
+class Ω(val λ: Int)
+  val μ: Double = …
+  def Δ(x: Int): Int
+  def ∑(xs: List[Int]): Int
+object Σ
+  val α: String = …
+  val β: String = …
+  val γ: String = …
+  def Φ(n: Int): Long

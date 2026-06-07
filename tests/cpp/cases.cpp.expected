@@ -1,0 +1,325 @@
+@@CASE@@ comments_strings
+namespace tricks
+  constexpr int REAL_CONST = …
+  class StringHolder
+    explicit StringHolder()
+    std::string get_fake_code() const
+    std::string get_raw_fake() const
+    bool is_valid() const
+    StringHolder operator+(const StringHolder& other) const
+    bool operator==(const StringHolder& other) const
+  int real_function(int a, int b)
+  struct RealStruct
+  enum class Color
+  double compute(double a, double b)
+  void process(const RealStruct& s)
+@@CASE@@ constructors
+class Widget
+  Widget()
+  Widget(int value)
+  Widget(const Widget& other)
+  Widget(Widget&& other) noexcept
+  ~Widget()
+@@CASE@@ edge
+namespace open_ns
+  struct Empty
+  struct Constants
+    static constexpr int ZERO = …
+    static constexpr double PI = …
+    static constexpr bool FALSE = …
+  auto make_pair(int a, int b) -> std::pair<int,int>
+  const int* pointer_to_const(int* p)
+  int* const const_pointer(int* p)
+  void multi_out(int in, int* out1, double* out2, bool* ok)
+  int printf_like(const char* fmt, ...)
+  std::map<std::string, std::vector<int>> build_index(const std::vector<std::string>& words)
+  enum 
+  typedef struct
+  void register_callback(void (*cb)(int, void*), void* userdata)
+  constexpr int factorial(int n)
+  static const int LIMIT = …
+  class Peculiar
+    Peculiar()
+    ~Peculiar()
+    Peculiar(const Peculiar&)
+    Peculiar(Peculiar&&)
+    explicit operator bool() const
+    explicit operator int() const
+    typedef int value_t
+    virtual void update(float dt)
+    virtual int priority() const
+    void reset(int mode = 0)
+  namespace unclosed
+    struct Dangling
+    int dangle(int x)
+@@CASE@@ nested
+namespace corp
+  namespace engine
+    namespace render
+      namespace detail
+        struct Vertex
+        struct Triangle
+        class Mesh
+          Mesh()
+          void add_vertex(Vertex v)
+          void add_triangle(Triangle t)
+          unsigned vertex_count() const
+          unsigned triangle_count() const
+          bool empty() const
+          void clear()
+          class Builder
+            Builder& vertex(float x, float y, float z)
+            Builder& normal(float nx, float ny, float nz)
+            Builder& uv(float u, float v)
+            Builder& triangle(unsigned a, unsigned b, unsigned c)
+            Mesh build()
+      enum class BlendMode
+      class Material
+        explicit Material(std::string name)
+        const std::string& name() const
+        void set_blend(BlendMode b)
+        BlendMode blend() const
+        class Param
+          explicit Param(std::string key)
+          void set_float(float v)
+          void set_int(int v)
+          void set_string(std::string v)
+          const std::string& key() const
+        void add_param(Param p)
+      class Scene
+        void add_mesh(detail::Mesh m, Material mat)
+        void remove_mesh(unsigned id)
+        unsigned mesh_count() const
+        class Node
+          Node(unsigned id, detail::Mesh m, Material mat)
+          unsigned id() const
+          const detail::Mesh& mesh() const
+          const Material& material() const
+  namespace physics
+    struct AABB
+    class RigidBody
+      explicit RigidBody(float mass)
+      float mass() const
+      void apply_force(float fx, float fy, float fz)
+      void step(float dt)
+      AABB bounding_box() const
+@@CASE@@ operator_overloads
+struct Foo
+  Foo operator+(const Foo& o) const
+  Foo& operator+=(const Foo& o)
+  bool operator==(const Foo& o) const
+  bool operator<(const Foo& o) const
+  Foo& operator[](std::size_t i)
+  Foo* operator->()
+  Foo operator()(int x)
+  Foo& operator=(const Foo& o)
+  explicit operator bool() const
+std::ostream& operator<<(std::ostream& os, const Foo& f)
+@@CASE@@ operators
+namespace math
+  constexpr double PI = …
+  constexpr double E = …
+  constexpr double SQRT2 = …
+  constexpr int MAX_DIM = …
+  static const std::string LIBRARY_NAME = …
+  enum Axis
+  enum class Norm
+  struct Vec2
+    Vec2()
+    Vec2(double x, double y)
+    Vec2 operator+(const Vec2& rhs) const
+    Vec2 operator-(const Vec2& rhs) const
+    Vec2 operator*(double scalar) const
+    Vec2 operator/(double scalar) const
+    Vec2& operator+=(const Vec2& rhs)
+    Vec2& operator-=(const Vec2& rhs)
+    bool operator==(const Vec2& rhs) const
+    bool operator!=(const Vec2& rhs) const
+    double operator[](int i) const
+    double& operator[](int i)
+    Vec2 operator-() const
+    explicit operator bool() const
+    double length() const
+    double dot(const Vec2& other) const
+    Vec2 normalized() const
+  Vec2 operator*(double scalar, const Vec2& v)
+  std::ostream& operator<<(std::ostream& os, const Vec2& v)
+  class Vec3
+    static constexpr int DIM = …
+    Vec3()
+    Vec3(double x, double y, double z)
+    double x() const
+    double y() const
+    double z() const
+    double& x()
+    double& y()
+    double& z()
+    Vec3 operator+(const Vec3& rhs) const
+    Vec3 operator-(const Vec3& rhs) const
+    Vec3 operator*(double s) const
+    Vec3& operator+=(const Vec3& rhs)
+    Vec3& operator-=(const Vec3& rhs)
+    bool operator==(const Vec3& rhs) const
+    bool operator!=(const Vec3& rhs) const
+    Vec3 operator-() const
+    double operator[](int i) const
+    double& operator[](int i)
+    double length() const
+    double lengthSq() const
+    Vec3 normalize() const
+    double dot(const Vec3& o) const
+    Vec3 cross(const Vec3& o) const
+    Norm dominant_norm() const
+    double norm(Norm kind) const
+  Vec3 operator*(double s, const Vec3& v)
+  std::ostream& operator<<(std::ostream& os, const Vec3& v)
+  class Mat3
+    static constexpr int ROWS = …
+    static constexpr int COLS = …
+    Mat3()
+    double operator()(int r, int c) const
+    double& operator()(int r, int c)
+    Mat3 operator+(const Mat3& rhs) const
+    Mat3 operator*(const Mat3& rhs) const
+    Vec3 operator*(const Vec3& v) const
+    Mat3 operator*(double s) const
+    bool operator==(const Mat3& rhs) const
+    Mat3 transpose() const
+    double determinant() const
+    Mat3 inverse() const
+    bool invertible() const
+  std::ostream& operator<<(std::ostream& os, const Mat3& m)
+@@CASE@@ raw_string_literal
+void before()
+const char* code = …
+const char* tagged = …
+void after()
+@@CASE@@ realworld
+#define HTTP_VERSION …
+#define MAX_HEADER_SIZE …
+namespace http
+  enum class Method
+  enum class StatusCode
+  struct Header
+  class Request
+    Request()
+    explicit Request(Method m, std::string url)
+    Method method() const
+    const std::string& url() const
+    const std::string& body() const
+    std::string header(const std::string& name) const
+    void set_body(std::string b)
+    void add_header(std::string name, std::string value)
+    bool is_secure() const
+  class Response
+    Response()
+    explicit Response(StatusCode code)
+    StatusCode status() const
+    int status_int() const
+    const std::string& body() const
+    void set_status(StatusCode code)
+    void set_body(std::string b)
+    void set_header(std::string name, std::string value)
+    bool ok() const
+  class Router
+    void get(std::string path, Handler h)
+    void post(std::string path, Handler h)
+    void put(std::string path, Handler h)
+    void del(std::string path, Handler h)
+    Response dispatch(const Request& req) const
+    bool has_route(Method m, const std::string& path) const
+    struct Route
+  constexpr uint16_t DEFAULT_PORT = …
+  constexpr int BACKLOG = …
+  class Server
+    explicit Server(uint16_t port = DEFAULT_PORT)
+    ~Server()
+    Server(const Server&)
+    Server& operator=(const Server&)
+    void set_router(Router r)
+    void listen()
+    void stop()
+    uint16_t port() const
+    bool running() const
+  std::string url_encode(const std::string& s)
+  std::string url_decode(const std::string& s)
+  std::string base64_encode(const std::vector<uint8_t>& data)
+  std::vector<uint8_t> base64_decode(const std::string& s)
+  Method parse_method(const std::string& s)
+  StatusCode parse_status(int code)
+@@CASE@@ sample
+namespace app
+  constexpr int MAX = …
+  class Vec
+    T at(int i) const
+  struct Point
+  int add(int a, int b)
+@@CASE@@ templates
+namespace tpl
+  T clamp(T value, T lo, T hi)
+  OutputIt copy_if_transformed(InputIt first, InputIt last, OutputIt d_first, UnaryPredicate pred)
+  class StaticArray
+    StaticArray()
+    explicit StaticArray(Args&&... args)
+    reference at(size_type i)
+    const_reference at(size_type i) const
+    reference operator[](size_type i)
+    const_reference operator[](size_type i) const
+    size_type size() const
+    bool empty() const
+    T* begin()
+    T* end()
+    const T* begin() const
+    const T* end() const
+    void sort(Compare comp)
+  class StaticArray<bool, 0>
+    std::size_t size() const
+    bool empty() const
+  struct Power
+    static constexpr int value = …
+  struct TypeList
+    static constexpr std::size_t size = …
+  class NumericRange
+    NumericRange(T lo, T hi)
+    T lo() const
+    T hi() const
+    T length() const
+    bool contains(T v) const
+    bool overlaps(const NumericRange& other) const
+  constexpr T square(T x)
+  typename Container::value_type sum(const Container& c)
+  auto safe_cast(U value) -> T
+@@CASE@@ unicode
+namespace 数学
+  constexpr double 円周率 = …
+  constexpr double 自然対数の底 = …
+  struct ベクトル
+  class 行列
+    行列()
+    explicit 行列(int 行数, int 列数)
+    double 要素(int 行, int 列) const
+    void 設定(int 行, int 列, double 値)
+    int 行数() const
+    int 列数() const
+    bool 正方形か() const
+  double 内積(const ベクトル& a, const ベクトル& b)
+  ベクトル 外積(const ベクトル& a, const ベクトル& b)
+  double ノルム(const ベクトル& v)
+namespace Größen
+  enum class Einheit
+  struct Größe
+  class Messung
+    explicit Messung(std::string Beschreibung)
+    void hinzufügen(Größe g)
+    double Durchschnitt() const
+    double Minimum() const
+    double Maximum() const
+    std::size_t Anzahl() const
+  Größe addieren(const Größe& a, const Größe& b)
+  bool gleich(const Größe& a, const Größe& b)
+namespace util
+  constexpr int MAX_Größe = …
+  class Übersetzer
+    explicit Übersetzer(std::string sprache)
+    std::string übersetzen(const std::string& text) const
+    bool unterstützt(const std::string& sprache) const

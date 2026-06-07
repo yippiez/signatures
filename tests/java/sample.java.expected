@@ -1,7 +1,0 @@
-public class Account
-  static final double RATE = …
-  public Account(String id)
-  public double balance()
-interface Greeter
-  String greet()
-enum Status

@@ -1,6 +1,0 @@
-const A: &str = "hello \
-    world";
-
-fn foo(
-    x: i32,
-) -> i32 { x }
