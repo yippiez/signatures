@@ -868,3 +868,29 @@ pub const OUTER: u32 = {
     INNER * 2
 };
 pub fn after() {}
+@@CASE@@ mod_indent
+pub fn outer() {}
+mod inner {
+    pub fn inside() {}
+    pub struct S;
+}
+pub mod nested {
+    pub mod deep {
+        pub fn f() {}
+    }
+}
+pub fn after() {}
+@@CASE@@ where_clause_span
+pub fn process<T, U>(input: T) -> U
+where
+    T: Into<String>,
+    U: From<String>,
+{
+    todo!()
+}
+struct Container<T>
+where
+    T: Clone,
+{
+    value: T,
+}

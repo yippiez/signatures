@@ -96,10 +96,12 @@ pub fn apply_to_str<F>(s: &str, f: F) -> String
 fn real()
 @@CASE@@ nested
 pub const ROOT_VERSION: &str = …
+pub mod config
   pub const MAX_WORKERS: usize = …
   pub struct Settings
     pub fn default() -> Self
     pub fn with_workers(mut self, n: usize) -> Self
+  pub mod logging
     pub const DEFAULT_LEVEL: &str = …
     pub enum Level
       pub fn from_str(s: &str) -> Option<Level>
@@ -111,12 +113,14 @@ pub const ROOT_VERSION: &str = …
       pub fn new(prefix: impl Into<String>) -> Self
       fn write_record(&mut self, level: &Level, message: &str)
       fn flush(&mut self)
+  pub mod storage
     pub const DEFAULT_PATH: &str = …
     pub const BUFFER_SIZE: usize = …
     pub struct DiskStore
       pub fn open(path: impl Into<std::path::PathBuf>) -> std::io::Result<Self>
       pub fn buf_size(&self) -> usize
       fn flush_buffers(&mut self) -> std::io::Result<()>
+pub mod runtime
   pub struct Handle
     pub fn spawn<F>(&self, future: F)
     pub fn block_on<F, T>(&self, future: F) -> T
@@ -196,3 +200,15 @@ pub trait Foo
 @@CASE@@ const_block_expr_body
 pub const OUTER: u32 = …
 pub fn after()
+@@CASE@@ mod_indent
+pub fn outer()
+mod inner
+  pub fn inside()
+  pub struct S
+pub mod nested
+  pub mod deep
+    pub fn f()
+pub fn after()
+@@CASE@@ where_clause_span
+pub fn process<T, U>(input: T) -> U
+struct Container<T>

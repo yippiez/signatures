@@ -1681,10 +1681,13 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
                         if l.is_empty() {
                             q += 1;
                         } else if l.contains('{') {
-                            // Body opener — may be on the where line itself
-                            // (`where T : Any {`). Leave line q unconsumed so its
-                            // `{` is counted by the next iteration.
+                            // Body opener found. Include it in consumed so that
+                            // `update_stack_tracked` processes the `{` in the same
+                            // slice as the declaration — this allows the body
+                            // opening to be associated with the declaration for
+                            // span tracking (--output full body coverage).
                             term = Term::Brace;
+                            q += 1;
                             break;
                         } else if l.contains(';') {
                             term = Term::Semi;
@@ -2916,7 +2919,7 @@ fn const_full(h: &str) -> Option<String> {
 /// Class/type-introducing keywords per language.
 fn class_keywords(lang: Lang) -> &'static [&'static str] {
     match lang {
-        Lang::Rust => &["struct", "enum", "trait", "union", "type"],
+        Lang::Rust => &["struct", "enum", "trait", "union", "type", "mod"],
         Lang::Go => &["type"],
         Lang::Js => &["class"],
         Lang::Ts => &["class", "interface", "type", "enum", "namespace"],
