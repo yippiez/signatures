@@ -160,7 +160,19 @@ impl Language for BraceLang {
                 // `init {…}` (Kotlin) / `static {…}` (Java) initializer blocks open
                 // a body whose local declarations are not API — tag it suppressing
                 // so members inside aren't emitted.
-                let tag = if is_init_block(trimmed) { Some(true) } else { None };
+                let mut tag = if is_init_block(trimmed) { Some(true) } else { None };
+                // A JS/TS class field initialized with a `{`-body value (an arrow
+                // field `f = (x) => {…}`, a class-expression field
+                // `static C = class {…}`, an object initializer) opens a value
+                // body, not a type body — suppress its nested declarations so
+                // they don't leak as members.
+                if tag.is_none()
+                    && matches!(self.lang, Lang::Js | Lang::Ts)
+                    && find_top_eq(trimmed).is_some()
+                    && line_opens_brace(trimmed)
+                {
+                    tag = Some(true);
+                }
                 update_stack(&mut stack, &mlines[i..=i], tag);
                 i += 1;
                 continue;
@@ -202,6 +214,14 @@ impl Language for BraceLang {
 
             let consumed = consumed.max(1);
             let end = (i + consumed).min(mlines.len());
+            // A `{` body opened by a header that already had a top-level `=` is a
+            // value / initializer expression (a class arrow-field body `f = (x)
+            // => {…}`, an object/array initializer, a static class-expression
+            // field), not a type body — suppress its nested declarations even
+            // when the field itself was not emitted (`pending` is None).
+            if pending.is_none() && term == Term::Brace && find_top_eq(&header).is_some() {
+                pending = Some(true);
+            }
             let tag = if term == Term::Brace { pending } else { None };
             update_stack(&mut stack, &mlines[i..end], tag);
             // A C# 10 file-scoped namespace (`namespace Foo;`) has no `{` body but
@@ -579,6 +599,24 @@ fn mask(source: &str, lang: Lang) -> (String, String) {
             continue;
         }
 
+        // JS/TS regex literal `/.../flags`. A `/` begins a regex (rather than a
+        // division operator) when the previous significant char is not a value
+        // terminator — i.e. it follows `(`, `,`, `=`, `:`, `[`, `!`, `&`, `|`,
+        // `?`, `{`, `;`, `return`, or the start of input. Mask its contents (a
+        // char class `[...]` may contain a literal `/`) so a `(`/`{`/`)` inside
+        // the pattern never perturbs the structural paren/brace counters.
+        if matches!(lang, Lang::Js | Lang::Ts)
+            && c == '/'
+            && chars.get(i + 1) != Some(&'/')
+            && chars.get(i + 1) != Some(&'*')
+            && regex_allowed_before(&out)
+        {
+            if let Some(ni) = mask_js_regex(&chars, i, &mut out) {
+                i = ni;
+                continue;
+            }
+        }
+
         // Rust raw string literals: r"...", r#"..."#, br"...", br#"..."#
         if lang == Lang::Rust && (c == 'r' || c == 'b') {
             if let Some(ni) = mask_rust_raw(&chars, i, &mut out) {
@@ -807,6 +845,89 @@ fn mask_quoted(
         i += 1;
     }
     i
+}
+
+/// Decide whether a `/` at the current position can begin a JS/TS regex literal,
+/// based on the last significant (non-space) char already emitted into the masked
+/// stream. A regex may follow an operator/opener/keyword but not a value (an
+/// identifier, number, `)`, `]`, or string) — there a `/` is division.
+fn regex_allowed_before(out: &str) -> bool {
+    let prev = out.chars().rev().find(|c| !c.is_whitespace());
+    match prev {
+        None => true, // start of input
+        Some(c) => {
+            if c.is_alphanumeric() || c == '_' || c == '$' || c == ')' || c == ']' {
+                // Could still be a keyword like `return` / `typeof`; check the
+                // trailing word. Other identifiers (a value) mean division.
+                let word: String = out
+                    .chars()
+                    .rev()
+                    .skip_while(|c| c.is_whitespace())
+                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
+                matches!(
+                    word.as_str(),
+                    "return" | "typeof" | "instanceof" | "in" | "of" | "new"
+                        | "delete" | "void" | "do" | "else" | "yield" | "await" | "case"
+                )
+            } else {
+                // Operators / openers / punctuation that precede an expression.
+                matches!(
+                    c,
+                    '(' | ',' | '=' | ':' | '[' | '!' | '&' | '|' | '?' | '{' | '}'
+                        | ';' | '+' | '-' | '*' | '%' | '^' | '~' | '<' | '>'
+                )
+            }
+        }
+    }
+}
+
+/// Blank a JS/TS regex literal starting at the opening `/`. Honors `\` escapes
+/// and `[...]` character classes (inside which `/` is literal). Stops at end of
+/// line if unterminated. Returns the index just past the literal (incl. flags),
+/// or `None` if it does not look like a regex (so the caller treats `/` as
+/// division).
+fn mask_js_regex(chars: &[char], start: usize, out: &mut String) -> Option<usize> {
+    let n = chars.len();
+    let mut i = start + 1;
+    let mut in_class = false;
+    let mut body = false;
+    while i < n {
+        let c = chars[i];
+        if c == '\n' {
+            // Unterminated on this line — not a regex; back out.
+            return None;
+        }
+        if c == '\\' && i + 1 < n && chars[i + 1] != '\n' {
+            i += 2;
+            continue;
+        }
+        if c == '[' {
+            in_class = true;
+        } else if c == ']' {
+            in_class = false;
+        } else if c == '/' && !in_class {
+            // Closing delimiter found; emit blanks for the whole literal.
+            i += 1;
+            body = true;
+            break;
+        }
+        i += 1;
+    }
+    if !body {
+        return None;
+    }
+    // Consume trailing flags (`g`, `i`, `m`, `s`, `u`, `y`, `d`).
+    while i < n && chars[i].is_ascii_alphabetic() {
+        i += 1;
+    }
+    for _ in start..i {
+        out.push(' ');
+    }
+    Some(i)
 }
 
 /// Blank a C/Java/Go char/rune literal `'...'`, stopping at end of line if it is
@@ -1480,6 +1601,19 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
     (collapse_ws(&join_pieces(&pieces)), consumed, term)
 }
 
+/// Does this (already-masked) line leave a `{` open — i.e. more `{` than `}`?
+fn line_opens_brace(line: &str) -> bool {
+    let mut d: i32 = 0;
+    for c in line.chars() {
+        match c {
+            '{' => d += 1,
+            '}' => d -= 1,
+            _ => {}
+        }
+    }
+    d > 0
+}
+
 /// Index of the first non-whitespace char in `chars`.
 fn leading_ws(chars: &[char]) -> usize {
     let mut i = 0;
@@ -1758,6 +1892,14 @@ fn classify(
         return None;
     }
 
+    // TypeScript `export type { A, B } from "mod"` is a type-only re-export, not
+    // a `type X = …` alias: the `{` name list is the "body", so `gather` strips
+    // it and leaves a bare `type` keyword with no alias name. Suppress it like a
+    // plain `export { … }` re-export.
+    if lang == Lang::Ts && kw == "type" && rest.trim().is_empty() && term == Term::Brace {
+        return None;
+    }
+
     // Type / class-like declarations.
     if class_keywords(lang).contains(&kw) {
         return Some((Kind::Class, class_text(h, lang), None));
@@ -1852,7 +1994,10 @@ fn classify(
                 let value = find_top_eq(h)
                     .map(|e| h[e + 1..].trim_start())
                     .unwrap_or("");
-                if h.contains("=>") && !value.starts_with('(') {
+                // A template-literal value (`const a = `${() => {}}``) is a
+                // computed constant: any `=>` lives inside a `${…}` hole, not at
+                // the value's top level — elide it like any other initializer.
+                if h.contains("=>") && !value.starts_with('(') && !value.starts_with('`') {
                     return Some((Kind::Function, h.to_string(), None));
                 }
                 return Some((Kind::Constant, const_text(h), const_full(h)));
@@ -2185,9 +2330,13 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         // In JS/TS, an operator-like keyword can *name* a `{`-bodied method
         // (`delete(id) {}`, `new() {}`, `await() {}`). Genuine statement keywords
         // (`if`/`for`/`while`/…) are reserved and never method names.
+        // A `{`-bodied method in JS/TS, or a TS interface/type-body method
+        // signature (ends with `;`, carries a `: ReturnType` annotation), may be
+        // *named* like an operator keyword (`with(x): void;`, `delete(id) {}`).
         let js_method_name = matches!(lang, Lang::Js | Lang::Ts)
-            && term == Term::Brace
-            && !is_js_statement_keyword(name);
+            && !is_js_statement_keyword(name)
+            && (term == Term::Brace
+                || (lang == Lang::Ts && term == Term::Semi && has_return_annotation(h)));
         if !js_method_name {
             return false;
         }

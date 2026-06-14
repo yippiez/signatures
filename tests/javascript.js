@@ -589,3 +589,23 @@ const obj = {
 const b = (() => {
   return 42;
 })();
+@@CASE@@ regex_paren_literal
+const x = /\(/;
+const y = 42;
+function foo() {}
+@@CASE@@ regex_brace_char_class
+const x = /[{]/;
+const y = 42;
+function foo() {}
+@@CASE@@ arrow_class_field_block_body
+class Foo {
+  method = (x) => {
+    const y = x + 1;
+    return y;
+  };
+
+  normalMethod() { return 1; }
+}
+@@CASE@@ arrow_in_template_literal
+const a = `${() => {}}`;
+const b = 42;
