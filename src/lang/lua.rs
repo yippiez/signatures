@@ -35,6 +35,11 @@ impl Language for LuaLang {
         // `span_end` to that last non-blank line.
         let mut open_top: Option<usize> = None;
         let mut last_nonblank: usize = 0;
+        // Depth of anonymous table constructors (`{ key = value, … }`). When > 0
+        // we are inside a table literal and should suppress member function entries
+        // to avoid false positives like `onClick = function(e)` being emitted as
+        // top-level declarations.
+        let mut table_brace_depth: i32 = 0;
         let mut i = 0;
 
         while i < masked.len() {
@@ -62,6 +67,45 @@ impl Language for LuaLang {
                 }
             }
             last_nonblank = line_no;
+
+            // Track depth of anonymous (non-class) table constructors. A line that
+            // opens such a table (e.g. `local t = {`) increments the depth; a bare
+            // `}` or `})` line at indent ≤ the opener's indent decrements it. While
+            // inside such a table, suppress function/constant detection to avoid
+            // emitting `onClick = function(…)` table members as declarations.
+            //
+            // Detection: if the stripped masked line ends with `{` (possibly after
+            // `= {` or `= function(…) {` etc.) but is NOT a class-like assignment
+            // (not starting with an uppercase identifier), count it as a table brace.
+            {
+                let s = stripped.trim_end();
+                if s.ends_with('{') && !is_function_start(stripped) {
+                    // Check if this is a class-like assignment (Uppercase = {).
+                    let is_class_brace = split_assign(stripped).map_or(false, |(lhs, _)| {
+                        let name = strip_word(lhs.trim(), "local")
+                            .map(|r| r.trim())
+                            .unwrap_or(lhs.trim());
+                        starts_upper(name)
+                    });
+                    if !is_class_brace {
+                        table_brace_depth += 1;
+                    }
+                }
+                // Count closing braces on this line (bare `}` or `},` or `})`).
+                // Use masked line so braces inside strings are not counted.
+                if table_brace_depth > 0 {
+                    for c in stripped.chars() {
+                        if c == '}' {
+                            table_brace_depth = (table_brace_depth - 1).max(0);
+                        }
+                    }
+                }
+            }
+
+            if table_brace_depth > 0 {
+                i += 1;
+                continue;
+            }
 
             if is_function_start(stripped) {
                 let (text, consumed) = gather_function(&masked, &orig, i);
@@ -314,15 +358,23 @@ fn gather_function(masked: &[String], orig: &[&str], start: usize) -> (String, u
         // Structure (paren depth) comes from the masked line — so parens inside a
         // string/comment don't count — but the emitted text uses the original
         // chars at the same index so literal content (e.g. a string key) survives.
+        // However, characters in comment-blanked regions must NOT be taken from the
+        // original (that would leak `-- comment text` into the signature).
+        // Detect the comment boundary: the last non-space position in the masked
+        // line plus one is the start of the trailing comment region (if any).
         let m: Vec<char> = masked[k].chars().collect();
         let o: Vec<char> = orig.get(k).map(|s| s.chars().collect()).unwrap_or_else(|| m.clone());
+        let last_structural = m.iter().rposition(|c| !c.is_whitespace()).map_or(0, |p| p + 1);
         let lead = m.iter().position(|c| !c.is_whitespace()).unwrap_or(m.len());
 
         let mut piece = String::new();
         let mut j = lead;
         while j < m.len() {
             let mc = m[j];
-            let oc = if j < o.len() { o[j] } else { mc };
+            // Use the original char only when we are within the structural region
+            // (before any trailing comment blanking). Past `last_structural`, all
+            // masked chars are spaces from comment blanking — emit spaces instead.
+            let oc = if j < last_structural && j < o.len() { o[j] } else { mc };
             match mc {
                 '(' => {
                     depth += 1;
@@ -349,6 +401,22 @@ fn gather_function(masked: &[String], orig: &[&str], start: usize) -> (String, u
         let piece = piece.trim_end().to_string();
         if !piece.is_empty() {
             pieces.push(piece);
+        }
+        // Stop if we encounter a new declaration on a continuation line (indicates
+        // an unclosed paren in the signature — don't swallow subsequent functions).
+        if k > start && !done {
+            let next_stripped = masked.get(k + 1).map(|s| s.trim_start()).unwrap_or("");
+            let looks_like_decl = next_stripped.starts_with("function ")
+                || next_stripped == "function"
+                || next_stripped.starts_with("local function ")
+                || next_stripped.starts_with("local function")
+                || (next_stripped.starts_with("local ") && {
+                    let r = &next_stripped["local ".len()..];
+                    r.starts_with("function")
+                });
+            if looks_like_decl {
+                break;
+            }
         }
         if done || k - start > 100 {
             break;

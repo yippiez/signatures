@@ -377,3 +377,17 @@ end
 T['namedKey'] = function(x, y)
   return x + y
 end
+@@CASE@@ table_constructor_no_leak
+local handlers = {
+  onClick = function(e) return true end,
+  onHover = function(e) return false end
+}
+function real_fn()
+end
+@@CASE@@ inline_comment_in_multiline_sig
+function with_comment(x,
+                      y -- ignored
+                      )
+end
+function after()
+end
