@@ -965,3 +965,24 @@ export class Foo {
     return ["a"].map(localHelper);
   }
 }
+@@CASE@@ regex_paren_literal
+export const A = /\(/;
+export function after(): void {}
+@@CASE@@ regex_brace_literal
+export const A = /\{/;
+export function after(): void {}
+@@CASE@@ export_type_reexport
+export type { Foo } from "mod";
+type Foo = string;
+@@CASE@@ static_class_expression_field
+export class Outer {
+  static factory = class {
+    create(): Outer { return new Outer(); }
+  };
+  build(): string { return ""; }
+}
+@@CASE@@ keyword_named_interface_method
+export interface Foo {
+  with(x: number): void;
+  after(): void;
+}
