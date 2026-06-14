@@ -135,12 +135,13 @@ impl Language for BraceLang {
             // C preprocessor directives are line-oriented; handle them here so
             // they are never glued onto the following statement by `gather`.
             if self.lang.has_preprocessor() && trimmed.starts_with('#') {
-                if let Some((kind, text)) = classify_define(trimmed) {
+                if let Some((kind, text, full)) = classify_define(trimmed) {
                     out.push(Signature {
                         indent: decl_indent,
                         kind,
                         text: tidy(&collapse_ws(&text)),
                         line: i + 1,
+                        full: full.map(|f| tidy(&collapse_ws(&f))),
                     });
                 }
                 update_stack(&mut stack, &mlines[i..=i], None);
@@ -180,7 +181,7 @@ impl Language for BraceLang {
             // `Name(...)` is a constructor, not a call — let `classify` know.
             let in_type_body = stack.last().copied() == Some(false);
             let mut pending: Option<bool> = None;
-            if let Some((kind, text)) = classify(&header, term, self.lang, in_type_body) {
+            if let Some((kind, text, full)) = classify(&header, term, self.lang, in_type_body) {
                 let in_fn_body = stack.last().copied().unwrap_or(false);
                 let suppress = in_fn_body
                     && (kind == Kind::Constant || suppress_locals_in_fn_body(self.lang));
@@ -190,9 +191,13 @@ impl Language for BraceLang {
                         kind,
                         text: tidy(&collapse_ws(&text)),
                         line: i + 1,
+                        full: full.map(|f| tidy(&collapse_ws(&f))),
                     });
                 }
-                pending = Some(kind == Kind::Function);
+                // A `const`/`static`/`var` whose body opens with `{` is a value
+                // block / initializer expression, not a type body — suppress any
+                // nested declarations the same way a function body is suppressed.
+                pending = Some(if kind == Kind::Constant { true } else { kind == Kind::Function });
             }
 
             let consumed = consumed.max(1);
@@ -376,31 +381,37 @@ fn go_group_block(
             if !t.starts_with(')') {
                 let (name, _) = take_ident(t);
                 if !name.is_empty() && !is_control(name) {
-                    let (kind, text) = if is_type {
+                    let (kind, text, full) = if is_type {
                         // `type X Y` / alias `X = Y` / `X struct {…}` (body cut).
                         let head = match t.find('{') {
                             Some(b) => t[..b].trim_end(),
                             None => t.trim_end(),
                         };
-                        (Kind::Class, format!("type {}", collapse_ws(head)))
+                        (Kind::Class, format!("type {}", collapse_ws(head)), None)
                     } else {
                         // `x [T] = v` elides the value; `var x T` (typed, no init)
                         // keeps the type with no ` = …`; a bare `Name` (iota-style
                         // const inheriting the previous initializer) still elides.
                         let body = t.trim_end();
-                        let text = if let Some(eq) = find_top_eq(body) {
-                            format!("{kw} {} = …", collapse_ws(body[..eq].trim_end()))
+                        let (text, full) = if let Some(eq) = find_top_eq(body) {
+                            // The member line already holds "NAME [T] = value"; the
+                            // `full` text keeps that value instead of eliding it.
+                            (
+                                format!("{kw} {} = …", collapse_ws(body[..eq].trim_end())),
+                                Some(format!("{kw} {}", collapse_ws(body))),
+                            )
                         } else {
                             let (nm, after) = take_ident(body.trim_start());
                             if after.trim().is_empty() {
-                                format!("{kw} {nm} = …")
+                                // Bare `Name` (iota-style): no value present to keep.
+                                (format!("{kw} {nm} = …"), None)
                             } else {
-                                format!("{kw} {}", collapse_ws(body))
+                                (format!("{kw} {}", collapse_ws(body)), None)
                             }
                         };
-                        (Kind::Constant, text)
+                        (Kind::Constant, text, full)
                     };
-                    out.push(Signature { indent, kind, text, line: k + 1 });
+                    out.push(Signature { indent, kind, text, line: k + 1, full });
                 }
             }
         }
@@ -1282,6 +1293,14 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                     piece.push(och(j));
                     j += 1;
                 }
+                // `->` is a return-type arrow (e.g. inside a `Fn(i32) -> i32`
+                // generic bound), not a generic close — the `>` must not
+                // decrement the angle counter or the header collection would
+                // stop early on a multi-line generic parameter line.
+                '>' if paren <= 0 && !seen_top_eq && mchars.get(j.wrapping_sub(1)) == Some(&'-') => {
+                    piece.push(och(j));
+                    j += 1;
+                }
                 '>' if paren <= 0 && !seen_top_eq => {
                     if angle > 0 {
                         angle -= 1;
@@ -1625,7 +1644,12 @@ fn prefilter(t: &str, lang: Lang) -> bool {
 
 /// Decide what kind of declaration a gathered header is, returning the kind and
 /// its normalized text (body already removed by `gather`).
-fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<(Kind, String)> {
+fn classify(
+    header: &str,
+    term: Term,
+    lang: Lang,
+    in_type_body: bool,
+) -> Option<(Kind, String, Option<String>)> {
     let h = header.trim();
     if h.is_empty() {
         return None;
@@ -1646,7 +1670,7 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
 
     // Java annotation-type declaration: `@interface Name`.
     if lang == Lang::Java && core.trim_start().starts_with("@interface") {
-        return Some((Kind::Class, class_text(h, lang)));
+        return Some((Kind::Class, class_text(h, lang), None));
     }
 
     // C/C++ struct/union/enum/class/namespace: a real definition has a body (or
@@ -1655,21 +1679,21 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
     if matches!(lang, Lang::C | Lang::Cpp) && class_keywords(lang).contains(&kw) {
         if h.contains('(') && looks_like_function(h, lang, term, in_type_body) {
             let text = if lang == Lang::Cpp { cpp_fn_text(h) } else { fn_text(h) };
-            return Some((Kind::Function, text));
+            return Some((Kind::Function, text, None));
         }
         if kw == "typedef" || term == Term::Brace {
-            return Some((Kind::Class, class_text(h, lang)));
+            return Some((Kind::Class, class_text(h, lang), None));
         }
         return None;
     }
 
     // Type / class-like declarations.
     if class_keywords(lang).contains(&kw) {
-        return Some((Kind::Class, class_text(h, lang)));
+        return Some((Kind::Class, class_text(h, lang), None));
     }
     // TypeScript `module 'foo' {` / `declare global {` wrappers (namespace-like).
     if lang == Lang::Ts && ts_module_wrapper(core) {
-        return Some((Kind::Class, class_text(h, lang)));
+        return Some((Kind::Class, class_text(h, lang), None));
     }
 
     match lang {
@@ -1682,7 +1706,7 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 loop {
                     let (w, after) = take_ident(r);
                     if w == "fn" {
-                        return Some((Kind::Function, h.to_string()));
+                        return Some((Kind::Function, strip_rust_where(h), None));
                     }
                     if matches!(w, "mut" | "unsafe" | "async" | "extern") {
                         r = after.trim_start();
@@ -1704,12 +1728,12 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 // A value-less associated const / extern static (`const BAR:
                 // usize;`) has no initializer to elide — show it verbatim.
                 if find_top_eq(h).is_none() {
-                    return Some((Kind::Constant, h.trim().to_string()));
+                    return Some((Kind::Constant, h.trim().to_string(), None));
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
             if kw == "fn" {
-                return Some((Kind::Function, h.to_string()));
+                return Some((Kind::Function, strip_rust_where(h), None));
             }
         }
         Lang::Go => {
@@ -1721,12 +1745,12 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 // A typed `var x T` with no initializer has nothing to elide —
                 // show it verbatim instead of fabricating a ` = …`.
                 if find_top_eq(h).is_none() {
-                    return Some((Kind::Constant, h.trim().to_string()));
+                    return Some((Kind::Constant, h.trim().to_string(), None));
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
             if kw == "func" {
-                return Some((Kind::Function, h.to_string()));
+                return Some((Kind::Function, h.to_string(), None));
             }
         }
         Lang::Js | Lang::Ts => {
@@ -1741,13 +1765,13 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 if lang == Lang::Ts {
                     let (n2, _) = take_ident(r);
                     if class_keywords(Lang::Ts).contains(&n2) {
-                        return Some((Kind::Class, class_text(h, lang)));
+                        return Some((Kind::Class, class_text(h, lang), None));
                     }
                 }
                 // A real arrow function has its `=>` at the *top* level of the
                 // value (`const f = (x) => …`).
                 if arrow_in_value(h) {
-                    return Some((Kind::Function, h.to_string()));
+                    return Some((Kind::Function, h.to_string(), None));
                 }
                 // A nested arrow that is NOT a parenthesized/IIFE expression
                 // (e.g. `const xs = arr.map(x => …)`) is shown verbatim as JS does
@@ -1758,24 +1782,24 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                     .map(|e| h[e + 1..].trim_start())
                     .unwrap_or("");
                 if h.contains("=>") && !value.starts_with('(') {
-                    return Some((Kind::Function, h.to_string()));
+                    return Some((Kind::Function, h.to_string(), None));
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
             // `function` followed by `(` / name is a function; `function(` shorthand
             // is handled by the callable-shape path below.
             if kw == "function" && !rest.trim_start().starts_with('(') {
-                return Some((Kind::Function, h.to_string()));
+                return Some((Kind::Function, h.to_string(), None));
             }
         }
         Lang::C | Lang::Cpp => {
             // C++20 `concept Name = …` is a named declaration.
             if lang == Lang::Cpp && kw == "concept" {
-                return Some((Kind::Class, const_text(h)));
+                return Some((Kind::Class, const_text(h), const_full(h)));
             }
             if matches!(kw, "const" | "constexpr" | "static" | "constinit") {
                 if looks_like_function(h, lang, term, in_type_body) {
-                    return Some((Kind::Function, h.to_string()));
+                    return Some((Kind::Function, h.to_string(), None));
                 }
                 // `static` alone (no `const`/`constexpr`/`constinit`) is mutable —
                 // not a constant. `constexpr`/`constinit` are always constants.
@@ -1783,7 +1807,7 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                     || contains_word(h, "constexpr")
                     || contains_word(h, "constinit");
                 if is_const && h.contains('=') {
-                    return Some((Kind::Constant, const_text(h)));
+                    return Some((Kind::Constant, const_text(h), const_full(h)));
                 }
                 return None;
             }
@@ -1793,24 +1817,24 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 if let Some(eq) = find_top_eq(h) {
                     let pp = h.find('(').unwrap_or(usize::MAX);
                     if eq < pp {
-                        return Some((Kind::Constant, const_text(h)));
+                        return Some((Kind::Constant, const_text(h), const_full(h)));
                     }
                 }
             }
         }
         Lang::Kotlin => {
             if kw == "fun" {
-                return Some((Kind::Function, fn_text(h)));
+                return Some((Kind::Function, fn_text(h), None));
             }
             // Secondary constructor: `constructor(...) : this(...) { }` — drop the
             // delegation/body, keep `constructor(params)`.
             if kw == "constructor" {
                 if let Some(open) = h.find('(') {
                     if let Some(rel) = matched_paren_end(&h[open..]) {
-                        return Some((Kind::Function, h[..open + rel].trim().to_string()));
+                        return Some((Kind::Function, h[..open + rel].trim().to_string(), None));
                     }
                 }
-                return Some((Kind::Function, fn_text(h)));
+                return Some((Kind::Function, fn_text(h), None));
             }
             if matches!(kw, "val" | "var") {
                 // Generic extension property: `val <T> Receiver.name` — skip the
@@ -1828,45 +1852,45 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 // A property with no initializer (a custom getter follows on the
                 // next line) must not get a spurious ` = …`.
                 if find_top_eq(h).is_none() {
-                    return Some((Kind::Constant, h.trim().to_string()));
+                    return Some((Kind::Constant, h.trim().to_string(), None));
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
         }
         Lang::Swift => {
             if matches!(kw, "func" | "init" | "subscript") {
-                return Some((Kind::Function, h.to_string()));
+                return Some((Kind::Function, h.to_string(), None));
             }
             if matches!(kw, "let" | "var") {
                 let (n2, _) = take_ident(rest.trim_start());
                 if n2.is_empty() {
                     return None;
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
         }
         Lang::Scala => {
             if kw == "def" {
-                return Some((Kind::Function, scala_def_text(h)));
+                return Some((Kind::Function, scala_def_text(h), None));
             }
             if matches!(kw, "val" | "var") {
                 let (n2, _) = take_ident(rest.trim_start());
                 if n2.is_empty() {
                     return None;
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
         }
         Lang::Php => {
             if kw == "function" {
-                return Some((Kind::Function, h.to_string()));
+                return Some((Kind::Function, h.to_string(), None));
             }
             if kw == "const" {
                 let (n2, _) = take_ident(rest.trim_start());
                 if n2.is_empty() {
                     return None;
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
         }
         Lang::Dart => {
@@ -1881,13 +1905,13 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 // is a top-level `=` it is a constant, otherwise fall through.
                 let _ = after;
                 if find_top_eq(h).is_some() || term != Term::Brace {
-                    return Some((Kind::Constant, const_text(h)));
+                    return Some((Kind::Constant, const_text(h), const_full(h)));
                 }
             }
             // Getter: `[Type] get name => …` / `{ … }`. No parameter list, so the
             // generic callable check never fires; classify it here as a function.
             if dart_getter(core).is_some() {
-                return Some((Kind::Function, fn_text(h)));
+                return Some((Kind::Function, fn_text(h), None));
             }
         }
         Lang::CSharp => {
@@ -1897,14 +1921,14 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
                 if n2.is_empty() {
                     return None;
                 }
-                return Some((Kind::Constant, const_text(h)));
+                return Some((Kind::Constant, const_text(h), const_full(h)));
             }
             // `static readonly` fields are C#'s idiomatic constants.
             if mods.iter().any(|m| *m == "readonly") {
                 if let Some(eq) = find_top_eq(h) {
                     let pp = h.find('(').unwrap_or(usize::MAX);
                     if eq < pp {
-                        return Some((Kind::Constant, const_text(h)));
+                        return Some((Kind::Constant, const_text(h), const_full(h)));
                     }
                 }
             }
@@ -1923,7 +1947,7 @@ fn classify(header: &str, term: Term, lang: Lang, in_type_body: bool) -> Option<
         } else {
             fn_text(h)
         };
-        return Some((Kind::Function, text));
+        return Some((Kind::Function, text, None));
     }
 
     None
@@ -2002,7 +2026,7 @@ fn contains_word(h: &str, word: &str) -> bool {
 }
 
 /// Classify a C `#define` line as a constant.
-fn classify_define(line: &str) -> Option<(Kind, String)> {
+fn classify_define(line: &str) -> Option<(Kind, String, Option<String>)> {
     let hs = line.trim_start().strip_prefix('#')?.trim_start();
     let rest = hs.strip_prefix("define")?.trim_start();
     let (name, after) = take_ident(rest);
@@ -2010,13 +2034,24 @@ fn classify_define(line: &str) -> Option<(Kind, String)> {
         return None;
     }
     let mut decl = format!("#define {name}");
+    // The body following the (optional) macro parameter list is what gets elided
+    // to "…"; capture it for the `full` text.
+    let mut body = after;
     if after.starts_with('(') {
         if let Some(end) = matched_paren_end(after) {
             decl.push_str(&after[..end]);
+            body = &after[end..];
         }
     }
+    let body = body.trim();
+    let full = if body.is_empty() {
+        // Object-like macro with no replacement text — nothing was elided.
+        None
+    } else {
+        Some(collapse_ws(&format!("{decl} {body}")))
+    };
     decl.push_str(" …");
-    Some((Kind::Constant, decl))
+    Some((Kind::Constant, decl, full))
 }
 
 /// Does `h` have the shape of a function/method definition or declaration?
@@ -2179,6 +2214,22 @@ fn const_text(h: &str) -> String {
         let t = h.trim_end();
         let t = t.strip_suffix(':').unwrap_or(t).trim_end();
         format!("{} = …", t.trim())
+    }
+}
+
+/// The full (non-elided) collapsed declaration text for a constant header `h`,
+/// or `None` when there is nothing to expand (no real initializer). The header
+/// already contains "NAME = value"; we keep the value verbatim (collapsed) in
+/// place of the "…" elision. Returns `None` when the `text` produced by
+/// [`const_text`] did not actually elide anything (no top-level `=` to keep).
+fn const_full(h: &str) -> Option<String> {
+    // Only a real top-level `=` initializer was elided to "…". The no-`=` branch
+    // of `const_text` fabricates a ` = …` with no value to recover, so there is
+    // nothing to expand — fall back to text.
+    if find_top_eq(h).is_some() {
+        Some(collapse_ws(h.trim()))
+    } else {
+        None
     }
 }
 
@@ -2703,6 +2754,37 @@ fn trailing_ident(s: &str) -> &str {
     &s[start..]
 }
 
+/// Drop a same-line Rust `where` constraint clause from a header (the
+/// multi-line form — `where` starting the next source line — is already
+/// consumed by `gather`). The clause is everything from a top-level `where`
+/// keyword to the end of the (body-stripped) header, matching the convention
+/// that constraints are elided from signatures.
+fn strip_rust_where(h: &str) -> String {
+    let b = h.as_bytes();
+    let mut depth: i32 = 0;
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'(' | b'[' | b'{' | b'<' => depth += 1,
+            b')' | b']' | b'}' | b'>' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            b'w' if depth == 0
+                && b[i..].starts_with(b"where")
+                && (i == 0 || b[i - 1] == b' ' || b[i - 1] == b'\t')
+                && b.get(i + 5).map_or(true, |c| *c == b' ' || *c == b'\t') =>
+            {
+                return h[..i].trim_end().to_string();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    h.to_string()
+}
+
 /// Index of the first top-level `=` that is a plain assignment (not `==`, `=>`,
 /// `<=`, `+=`, etc.), or `None`.
 fn find_top_eq(h: &str) -> Option<usize> {
@@ -2824,6 +2906,8 @@ fn tidy(s: &str) -> String {
         (", )", ")"),
         (",)", ")"),
         (",]", "]"),
+        (", >", ">"),
+        (",>", ">"),
     ] {
         t = t.replace(from, to);
     }
@@ -2847,6 +2931,31 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].text, "int real(void)");
         assert_eq!(s[0].line, 3);
+    }
+
+    #[test]
+    fn full_field_holds_real_constant_value() {
+        // Rust const: text elides the RHS to "…"; full keeps the real value.
+        let s = sigs(Lang::Rust, "const MAX: u32 = 1 << 20;\n");
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "const MAX: u32 = …");
+        assert_eq!(s[0].full.as_deref(), Some("const MAX: u32 = 1 << 20"));
+
+        // Go grouped const: each member's full keeps its value.
+        let g = sigs(Lang::Go, "package m\n\nconst (\n\tA = 1\n\tB = 2 + 3\n)\n");
+        assert_eq!(g[0].text, "const A = …");
+        assert_eq!(g[0].full.as_deref(), Some("const A = 1"));
+        assert_eq!(g[1].text, "const B = …");
+        assert_eq!(g[1].full.as_deref(), Some("const B = 2 + 3"));
+
+        // C #define: full keeps the replacement text.
+        let c = sigs(Lang::C, "#define BUF_SIZE 4096\n");
+        assert_eq!(c[0].text, "#define BUF_SIZE …");
+        assert_eq!(c[0].full.as_deref(), Some("#define BUF_SIZE 4096"));
+
+        // Functions and value-less consts elide nothing -> full is None.
+        let f = sigs(Lang::Rust, "fn f() {}\nconst BAR: usize;\n");
+        assert!(f.iter().all(|x| x.full.is_none()));
     }
 
     #[test]

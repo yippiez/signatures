@@ -11,7 +11,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-const USAGE: &str = "usage: signatures [--no-color] [--help] [--version] <file>...";
+const USAGE: &str = "usage: signatures [--format <plain|jsonl>] [--output <truncated|full>] \
+[--stream] [--no-color] [--help] [--version] <file>...";
 
 fn main() {
     match cli::parse(std::env::args().skip(1)) {
@@ -40,7 +41,11 @@ fn run(cfg: cli::Config) -> i32 {
     }
 
     let show_header = files.len() > 1;
+    // In plain mode multi-file output, a blank line separates files. jsonl never
+    // prints headers or blank separators.
+    let plain = cfg.format == cli::Format::Plain;
     let mut out = String::new();
+    let mut stdout = std::io::stdout();
     let mut first = true;
 
     for f in &files {
@@ -65,16 +70,40 @@ fn run(cfg: cli::Config) -> i32 {
         let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
 
         let sigs = language.extract(source);
-        if !first {
-            out.push('\n');
+        let path = f.display().to_string();
+
+        if cfg.stream {
+            // Incremental path: write+flush after each emitted unit. Must be
+            // byte-identical to the buffered path below.
+            if plain && !first {
+                let _ = stdout.write_all(b"\n");
+                let _ = stdout.flush();
+            }
+            if plain && show_header {
+                let mut hdr = colors.header(&path);
+                hdr.push('\n');
+                let _ = stdout.write_all(hdr.as_bytes());
+                let _ = stdout.flush();
+            }
+            for s in &sigs {
+                let mut line = render::render_one(&path, s, &colors, cfg.format, cfg.output);
+                line.push('\n');
+                let _ = stdout.write_all(line.as_bytes());
+                let _ = stdout.flush();
+            }
+        } else {
+            if plain && !first {
+                out.push('\n');
+            }
+            render::render(&path, &sigs, &colors, show_header, cfg.format, cfg.output, &mut out);
         }
         first = false;
-        render::render(&f.display().to_string(), &sigs, &colors, show_header, &mut out);
     }
 
-    let mut stdout = std::io::stdout();
-    let _ = stdout.write_all(out.as_bytes());
-    let _ = stdout.flush();
+    if !cfg.stream {
+        let _ = stdout.write_all(out.as_bytes());
+        let _ = stdout.flush();
+    }
 
     if had_error {
         1
@@ -114,6 +143,11 @@ fn print_help() {
     println!("Print the signatures (functions, classes, constants) of source files.");
     println!();
     println!("Options:");
+    println!("  --format <plain|jsonl>      output format (default: plain). jsonl emits one");
+    println!("                              JSON object per signature per line (no color).");
+    println!("  --output <truncated|full>   value display (default: truncated). full expands");
+    println!("                              elided values (the \"…\") to the full code part.");
+    println!("  --stream                    stream each finding as produced (flush per line)");
     println!("  --no-color    disable ANSI colors (colors are on by default)");
     println!("  -h, --help    show this help");
     println!("      --version show version");

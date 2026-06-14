@@ -1,22 +1,101 @@
 //! Turn extracted signatures into colorized, indented output text.
 
+use crate::cli::{Format, OutputMode};
 use crate::color::Colors;
 use crate::signature::{Kind, Signature};
 
+/// Pick the text to render for a signature honoring `--output`.
+fn chosen_text<'a>(s: &'a Signature, output: OutputMode) -> &'a str {
+    match output {
+        OutputMode::Truncated => &s.text,
+        // `full` falls back to `text` when nothing was elided (full == None).
+        OutputMode::Full => s.full.as_deref().unwrap_or(&s.text),
+    }
+}
+
+/// Render exactly ONE signature (no trailing newline) to a String, honoring the
+/// chosen format and output mode. Used by both the buffered and streaming paths.
+pub fn render_one(
+    path: &str,
+    s: &Signature,
+    colors: &Colors,
+    format: Format,
+    output: OutputMode,
+) -> String {
+    let text = chosen_text(s, output);
+    match format {
+        Format::Plain => {
+            let mut line = String::new();
+            for _ in 0..s.indent {
+                line.push_str("  ");
+            }
+            line.push_str(&colorize(s.kind, text, colors));
+            line
+        }
+        Format::Jsonl => {
+            // Never colorized. Compact, hand-rolled JSON object.
+            let kind = match s.kind {
+                Kind::Function => "function",
+                Kind::Class => "class",
+                Kind::Constant => "constant",
+            };
+            let mut o = String::new();
+            o.push_str("{\"file\":");
+            json_string(path, &mut o);
+            o.push_str(",\"line\":");
+            o.push_str(&s.line.to_string());
+            o.push_str(",\"indent\":");
+            o.push_str(&s.indent.to_string());
+            o.push_str(",\"kind\":\"");
+            o.push_str(kind);
+            o.push_str("\",\"text\":");
+            json_string(text, &mut o);
+            o.push('}');
+            o
+        }
+    }
+}
+
 /// Append the rendered block for one file (optional header + its signatures) to
-/// `out`.
-pub fn render(path: &str, sigs: &[Signature], colors: &Colors, show_header: bool, out: &mut String) {
-    if show_header {
+/// `out`. Plain format only emits the header; jsonl never does.
+pub fn render(
+    path: &str,
+    sigs: &[Signature],
+    colors: &Colors,
+    show_header: bool,
+    format: Format,
+    output: OutputMode,
+    out: &mut String,
+) {
+    if format == Format::Plain && show_header {
         out.push_str(&colors.header(path));
         out.push('\n');
     }
     for s in sigs {
-        for _ in 0..s.indent {
-            out.push_str("  ");
-        }
-        out.push_str(&colorize(s.kind, &s.text, colors));
+        out.push_str(&render_one(path, s, colors, format, output));
         out.push('\n');
     }
+}
+
+/// Append `s` to `out` as a JSON string literal (including the surrounding
+/// quotes). Hand-rolled, no dependencies. Escapes `\`, `"`, control chars
+/// (`\n \r \t` and `\u00XX` for other bytes < 0x20). UTF-8 is kept as-is.
+pub fn json_string(s: &str, out: &mut String) {
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
 /// Keyword tokens highlighted as keywords across all supported languages
@@ -200,7 +279,7 @@ mod tests {
     use super::*;
 
     fn sig(kind: Kind, text: &str) -> Signature {
-        Signature { indent: 0, kind, text: text.to_string(), line: 1 }
+        Signature { indent: 0, kind, text: text.to_string(), line: 1, full: None }
     }
 
     #[test]
@@ -216,6 +295,8 @@ mod tests {
             ],
             &colors,
             true,
+            Format::Plain,
+            OutputMode::Truncated,
             &mut out,
         );
         assert!(!out.contains('\x1b'), "expected no ANSI escapes: {out:?}");
@@ -227,7 +308,15 @@ mod tests {
     fn color_wraps_tokens() {
         let colors = Colors { enabled: true };
         let mut out = String::new();
-        render("a.py", &[sig(Kind::Function, "def run(self):")], &colors, false, &mut out);
+        render(
+            "a.py",
+            &[sig(Kind::Function, "def run(self):")],
+            &colors,
+            false,
+            Format::Plain,
+            OutputMode::Truncated,
+            &mut out,
+        );
         assert!(out.contains("\x1b[1;35mdef\x1b[0m"));
         assert!(out.contains("\x1b[1;36mrun\x1b[0m"));
     }
@@ -238,7 +327,61 @@ mod tests {
         let mut out = String::new();
         let mut s = sig(Kind::Function, "def m(self):");
         s.indent = 1;
-        render("a.py", &[s], &colors, false, &mut out);
+        render(
+            "a.py",
+            &[s],
+            &colors,
+            false,
+            Format::Plain,
+            OutputMode::Truncated,
+            &mut out,
+        );
         assert!(out.starts_with("  def m(self):"));
+    }
+
+    #[test]
+    fn json_escapes() {
+        let mut o = String::new();
+        json_string("a\"b\\c\nd\te\r\u{1}f", &mut o);
+        assert_eq!(o, "\"a\\\"b\\\\c\\nd\\te\\r\\u0001f\"");
+    }
+
+    #[test]
+    fn json_keeps_utf8() {
+        let mut o = String::new();
+        json_string("MAX = …", &mut o);
+        assert_eq!(o, "\"MAX = …\"");
+    }
+
+    #[test]
+    fn jsonl_record_shape() {
+        let colors = Colors { enabled: true };
+        let s = sig(Kind::Constant, "MAX = …");
+        let line = render_one("a.py", &s, &colors, Format::Jsonl, OutputMode::Truncated);
+        assert!(!line.contains('\x1b'), "jsonl must never be colorized: {line:?}");
+        assert_eq!(
+            line,
+            "{\"file\":\"a.py\",\"line\":1,\"indent\":0,\"kind\":\"constant\",\"text\":\"MAX = …\"}"
+        );
+    }
+
+    #[test]
+    fn full_falls_back_to_text_when_none() {
+        let colors = Colors { enabled: false };
+        let s = sig(Kind::Constant, "MAX = …");
+        let trunc = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Truncated);
+        let full = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Full);
+        assert_eq!(trunc, full);
+    }
+
+    #[test]
+    fn full_expands_when_some() {
+        let colors = Colors { enabled: false };
+        let mut s = sig(Kind::Constant, "MAX = …");
+        s.full = Some("MAX = 1 << 20".to_string());
+        let full = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Full);
+        assert_eq!(full, "MAX = 1 << 20");
+        let trunc = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Truncated);
+        assert_eq!(trunc, "MAX = …");
     }
 }

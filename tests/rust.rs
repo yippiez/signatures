@@ -852,3 +852,19 @@ pub fn outer() -> i32 {
     fn local_fn() -> i32 { 42 }
     LocalStruct { x: local_fn() }.x
 }
+@@CASE@@ multiline_generic_fn_bound
+pub fn ml<
+    F: Fn(i32) -> i32,
+>(f: F) -> i32 {
+    f(0)
+}
+@@CASE@@ where_clause_same_line
+pub trait Foo {
+    fn method(&self) where Self: Sized;
+}
+@@CASE@@ const_block_expr_body
+pub const OUTER: u32 = {
+    const INNER: u32 = 5;
+    INNER * 2
+};
+pub fn after() {}

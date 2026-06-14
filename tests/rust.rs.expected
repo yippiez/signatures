@@ -188,3 +188,11 @@ pub fn café_name() -> &'static str
 fn real()
 @@CASE@@ local_items_in_fn_body_suppressed
 pub fn outer() -> i32
+@@CASE@@ multiline_generic_fn_bound
+pub fn ml<F: Fn(i32) -> i32>(f: F) -> i32
+@@CASE@@ where_clause_same_line
+pub trait Foo
+  fn method(&self)
+@@CASE@@ const_block_expr_body
+pub const OUTER: u32 = …
+pub fn after()

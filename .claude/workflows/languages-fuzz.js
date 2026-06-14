@@ -1,10 +1,10 @@
 export const meta = {
-  name: 'fuzz-language',
-  description: 'Fuzz one already-implemented signatures language: 20 sonnet agents generate language examples and hunt for failures (panics / wrong output); then one opus agent turns the distinct failing cases into regression test fixtures under tests/<lang>/. It only captures bugs as tests — it does NOT fix the extractor.',
-  whenToUse: 'Stress-test a single existing language and pin its bugs as tests. args="Rust" or {language:"Rust", fuzzers:20}.',
+  name: 'languages-fuzz',
+  description: 'Fuzz the implemented signatures languages: per language, ~12 sonnet agents generate examples and hunt for failures (panics / wrong output), then one opus agent turns the distinct failing cases into regression test fixtures under tests/<lang>/. Self-contained sweep — captures bugs only, does NOT fix extractors.',
+  whenToUse: 'Sweep-fuzz the language set and pin bugs as tests. args={} fuzzes all-but-already-done; ["Rust","Go"] or {languages:[...]} restricts; {skip:[...]} excludes; {fuzzers:N} per-language fuzzer count.',
   phases: [
-    { title: 'Fuzz', detail: '20 sonnet agents generate examples and report reproducible failures', model: 'sonnet' },
-    { title: 'CreateTests', detail: 'one opus agent writes regression fixtures (input + correct .expected) for the failures', model: 'opus' },
+    { title: 'Fuzz', detail: 'per language: sonnet agents generate examples and report reproducible failures', model: 'sonnet' },
+    { title: 'CreateTests', detail: 'per language: one opus agent writes regression fixtures (input + correct .expected)', model: 'opus' },
   ],
 }
 
@@ -12,40 +12,45 @@ export const meta = {
 const REPO = '/home/eren/work2/signature'
 const MAX_FAILURES_FOR_TESTS = 40
 
+// Every implemented language (one tests/<lang>/ dir each).
+const ALL = [
+  'bash', 'c', 'cpp', 'csharp', 'dart', 'go', 'java', 'javascript', 'kotlin',
+  'lua', 'php', 'ruby', 'scala', 'swift', 'typescript', 'python', 'rust',
+]
+
 let A = args
 if (typeof A === 'string') {
   const t = A.trim()
   if (t.startsWith('{') || t.startsWith('[')) { try { A = JSON.parse(t) } catch (_) {} }
 }
 const cfg = (A && typeof A === 'object' && !Array.isArray(A)) ? A : {}
-// Number of sonnet fuzzers per language. Override with {fuzzers:N}; analysis of
-// an early run showed ~8-12 catches nearly all distinct root causes, so 12 is
-// the default sweet spot (20 mostly re-found the same top bugs).
+
+// Number of sonnet fuzzers per language. Analysis of an early run showed ~8-12
+// catches nearly all distinct root causes, so 12 is the default sweet spot.
 const FUZZERS = Number.isFinite(cfg.fuzzers) ? Math.max(1, cfg.fuzzers) : 12
+// Python + Rust were already fuzzed (their fixtures are committed in the tree),
+// so skip them by default to avoid duplicate fixtures. Override with {skip:[]}.
+const skip = new Set((Array.isArray(cfg.skip) ? cfg.skip : ['python', 'rust']).map(s => String(s).toLowerCase().trim()))
+const requested = Array.isArray(A) ? A.map(String)
+  : Array.isArray(cfg.languages) ? cfg.languages.map(String)
+  : (typeof cfg.languages === 'string' ? cfg.languages.split(/[,\s]+/)
+    : (cfg.language ? [String(cfg.language)] : ALL))
+const langs = requested.map(s => s.toLowerCase().trim()).filter(Boolean).filter(l => !skip.has(l))
 
-const rawLangs = Array.isArray(A) ? A
-  : Array.isArray(cfg.languages) ? cfg.languages
-  : (cfg.language ? [cfg.language]
-    : (typeof cfg.languages === 'string' ? cfg.languages.split(/[,\s]+/)
-      : (typeof A === 'string' ? A.split(/[,\s]+/) : [])))
-const RESERVED = new Set(['language', 'languages', 'fuzzers', 'rounds'])
-const cleaned = rawLangs.map(s => String(s).trim()).filter(Boolean)
-  .filter(s => !RESERVED.has(s.toLowerCase()) && !/^\d+$/.test(s))
-if (cleaned.length === 0) throw new Error('fuzz-language needs a language. args="Rust" or {language:"Rust", fuzzers:20}.')
-const lang = cleaned[0]
-if (cleaned.length > 1) log('Multiple languages given; fuzzing only the first: ' + lang)
+if (langs.length === 0) throw new Error('languages-fuzz: no languages left to fuzz after applying skip list.')
 
-// ---- which source file holds this language's logic --------------------------
+// ---- which source file holds a language's logic -----------------------------
 const ALIAS = {
   'c++': 'cpp', 'cpp': 'cpp', 'cplusplus': 'cpp', 'c#': 'csharp', 'cs': 'csharp', 'csharp': 'csharp',
   'objective-c': 'objc', 'objectivec': 'objc', 'objc': 'objc', 'golang': 'go', 'js': 'javascript', 'ts': 'typescript',
 }
 const BRACE_FAMILY = new Set(['rust', 'go', 'c', 'cpp', 'csharp', 'java', 'javascript', 'typescript', 'swift', 'kotlin', 'scala', 'php', 'dart', 'objc', 'zig'])
-const key = ALIAS[lang.toLowerCase().trim()] || (lang.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'lang')
-const dir = key
-const srcFile = BRACE_FAMILY.has(key) ? 'braces.rs' : key + '.rs'
+function resolveLang(lang) {
+  const key = ALIAS[lang.toLowerCase().trim()] || (lang.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'lang')
+  return { key, dir: key, srcFile: BRACE_FAMILY.has(key) ? 'braces.rs' : key + '.rs' }
+}
 
-// 15 fuzzing angles, cycled across the 20 agents to diversify coverage.
+// 15 fuzzing angles, cycled across the agents to diversify coverage.
 const FOCUS = [
   'Deeply nested declarations — verify nesting indent at every depth.',
   'Multi-line signatures with generics / long parameter lists split across lines.',
@@ -65,7 +70,7 @@ const FOCUS = [
 ]
 
 // ---- prompts ----------------------------------------------------------------
-function fuzzPrompt(i, focus) {
+function fuzzPrompt(lang, srcFile, i, focus) {
   return [
     'You are FUZZER #' + i + ' stress-testing the "signatures" CLI support for ' + lang + ' (an ALREADY-implemented language). ' +
       'TIME-BOX: ~3 minutes — find failures, then stop; never loop.',
@@ -83,7 +88,7 @@ function fuzzPrompt(i, focus) {
   ].join('\n')
 }
 
-function createTestsPrompt(failures) {
+function createTestsPrompt(lang, dir, failures) {
   const list = failures.map((f, n) => [
     '### Failure ' + (n + 1) + ': ' + (f.title || 'untitled') + ' [' + (f.severity || 'unknown') + ']',
     f.note ? 'Note: ' + f.note : '',
@@ -154,52 +159,79 @@ function dedupe(failures) {
   return out
 }
 
-// ============================================================================
-// STAGE 1 — FUZZ: 20 sonnet agents in parallel
-// ============================================================================
-phase('Fuzz')
-log('Fuzzing ' + lang + ' (logic in src/lang/' + srcFile + ') with ' + FUZZERS + ' sonnet agents...')
-const results = await parallel(
-  Array.from({ length: FUZZERS }, (_, i) => () =>
-    agent(fuzzPrompt(i + 1, FOCUS[i % FOCUS.length]), {
-      schema: FUZZ_SCHEMA,
-      model: 'sonnet',
-      agentType: 'general-purpose',
-      label: 'fuzz:' + dir + ':a' + (i + 1),
-      phase: 'Fuzz',
-    })
+// Fuzz a single language end-to-end (Fuzz -> CreateTests), inlined so the sweep
+// is fully self-contained (no cross-workflow call).
+async function fuzzOneLanguage(lang, fuzzers) {
+  const { dir, srcFile } = resolveLang(lang)
+
+  // STAGE 1 — FUZZ: sonnet agents in parallel
+  const results = await parallel(
+    Array.from({ length: fuzzers }, (_, i) => () =>
+      agent(fuzzPrompt(lang, srcFile, i + 1, FOCUS[i % FOCUS.length]), {
+        schema: FUZZ_SCHEMA,
+        model: 'sonnet',
+        agentType: 'general-purpose',
+        label: 'fuzz:' + dir + ':a' + (i + 1),
+        phase: 'Fuzz',
+      })
+    )
   )
-)
 
-const ran = results.filter(Boolean)
-const allFailures = dedupe(ran.flatMap(r => Array.isArray(r.failures) ? r.failures : []))
-log(ran.length + '/' + FUZZERS + ' fuzzers ran; ' + allFailures.length + ' distinct failure(s) found.')
+  const ran = results.filter(Boolean)
+  const allFailures = dedupe(ran.flatMap(r => Array.isArray(r.failures) ? r.failures : []))
+  log(dir + ': ' + ran.length + '/' + fuzzers + ' fuzzers ran; ' + allFailures.length + ' distinct failure(s) found.')
 
-if (allFailures.length === 0) {
-  log('No failures found — nothing to capture. Done.')
-  return { language: lang, fuzzers: ran.length, failures: 0, testsCreated: 0 }
+  if (allFailures.length === 0) {
+    return { language: lang, fuzzers: ran.length, failures: 0, testsCreated: 0 }
+  }
+
+  // STAGE 2 — CREATE TESTS: one opus agent turns failures into fixtures
+  const batch = allFailures.slice(0, MAX_FAILURES_FOR_TESTS)
+  if (allFailures.length > batch.length) log(dir + ': capping at ' + batch.length + ' of ' + allFailures.length + ' failures for fixture creation.')
+  const tests = await agent(createTestsPrompt(lang, dir, batch), {
+    schema: TESTS_SCHEMA,
+    model: 'opus',
+    agentType: 'general-purpose',
+    label: 'create-tests:' + dir,
+    phase: 'CreateTests',
+  })
+  log(dir + ': created ' + (tests.created || 0) + ' regression fixture(s); ' + (tests.currentlyFailing || 0) + ' currently failing (documented bugs).')
+
+  return {
+    language: lang,
+    fuzzers: ran.length,
+    failures: allFailures.length,
+    testsCreated: tests.created || 0,
+    currentlyFailing: tests.currentlyFailing || 0,
+    files: tests.files || [],
+  }
 }
 
 // ============================================================================
-// STAGE 2 — CREATE TESTS: one opus agent turns failures into fixtures
+// SWEEP — fuzz every requested language in parallel (each writes only its own
+// tests/<lang>/, so parallel edits are conflict-free).
 // ============================================================================
-const batch = allFailures.slice(0, MAX_FAILURES_FOR_TESTS)
-if (allFailures.length > batch.length) log('Capping at ' + batch.length + ' of ' + allFailures.length + ' failures for fixture creation.')
-phase('CreateTests')
-const tests = await agent(createTestsPrompt(batch), {
-  schema: TESTS_SCHEMA,
-  model: 'opus',
-  agentType: 'general-purpose',
-  label: 'create-tests:' + dir,
-  phase: 'CreateTests',
-})
-log('Created ' + (tests.created || 0) + ' regression fixture(s); ' + (tests.currentlyFailing || 0) + ' currently failing (documented bugs).')
+phase('Fuzz')
+log('Fuzzing ' + langs.length + ' language(s) with ' + FUZZERS + ' fuzzers each: ' + langs.join(', ') +
+  (skip.size ? '  (skipping: ' + [...skip].join(', ') + ')' : ''))
 
+const results = await parallel(langs.map(l => () =>
+  fuzzOneLanguage(l, FUZZERS)
+    .then(r => ({ ok: true, ...r }))
+    .catch(e => ({ language: l, ok: false, error: String(e && e.message || e) }))
+))
+
+const done = results.filter(Boolean)
+const summary = done.map(r => r.ok
+  ? '  ' + String(r.language).padEnd(11) + '→ ' + (r.failures || 0) + ' failure(s), ' + (r.testsCreated || 0) + ' fixture(s) created'
+  : '  ' + String(r.language).padEnd(11) + '→ ERROR: ' + r.error
+).join('\n')
+log('Sweep complete:\n' + summary)
+
+const totalFixtures = done.reduce((n, r) => n + (r.ok ? (r.testsCreated || 0) : 0), 0)
 return {
-  language: lang,
-  fuzzers: ran.length,
-  failures: allFailures.length,
-  testsCreated: tests.created || 0,
-  currentlyFailing: tests.currentlyFailing || 0,
-  files: tests.files || [],
+  languagesFuzzed: done.filter(r => r.ok).length,
+  languagesErrored: done.filter(r => !r.ok).map(r => r.language),
+  totalFixturesCreated: totalFixtures,
+  perLanguage: done,
 }

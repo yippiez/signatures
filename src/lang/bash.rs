@@ -22,6 +22,9 @@ impl Language for BashLang {
         // blanking heredoc bodies so neither multi-line strings nor here-doc
         // contents can be mistaken for declarations.
         let cleaned = clean_source(source);
+        // Keep the original source lines so we can extract unredacted RHS values
+        // for the `full` field of constant signatures.
+        let originals: Vec<&str> = source.lines().collect();
 
         let mut out = Vec::new();
         // Brace nesting depth (clamped at >= 0).
@@ -53,7 +56,7 @@ impl Language for BashLang {
             if is_func_start(trimmed) {
                 let level = stack.len();
                 let (text, consumed) = gather_func(&cleaned, i);
-                out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no });
+                out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no, full: None });
                 stack.push(depth);
                 for k in i..(i + consumed) {
                     depth = bump(depth, brace_delta(&cleaned[k]));
@@ -65,8 +68,8 @@ impl Language for BashLang {
             // Constants are only meaningful at module scope (not inside a
             // function body).
             if stack.is_empty() && depth == 0 {
-                if let Some(text) = constant_sig(trimmed) {
-                    out.push(Signature { indent: 0, kind: Kind::Constant, text, line: line_no });
+                if let Some((text, full)) = constant_sig(trimmed, originals.get(i).copied()) {
+                    out.push(Signature { indent: 0, kind: Kind::Constant, text, line: line_no, full });
                 }
             }
 
@@ -404,11 +407,18 @@ fn gather_func(lines: &[String], start: usize) -> (String, usize) {
 }
 
 /// If a module-level statement is a constant assignment, return its normalized
-/// signature (`NAME = …`). Accepts an optional leading
-/// `readonly`/`declare`/`export`/`local`/`typeset` keyword (and `declare`-style
-/// `-flag` tokens), then requires an ALL-CAPS identifier immediately followed by
-/// a single `=`. Lowercase names, `==` comparisons and spaced `=` are rejected.
-fn constant_sig(trimmed: &str) -> Option<String> {
+/// signature (`NAME = …`) and the full (unelided) declaration text. Accepts an
+/// optional leading `readonly`/`declare`/`export`/`local`/`typeset` keyword (and
+/// `declare`-style `-flag` tokens), then requires an ALL-CAPS identifier
+/// immediately followed by a single `=`. Lowercase names, `==` comparisons and
+/// spaced `=` are rejected.
+///
+/// `orig_line` is the corresponding raw (un-scrubbed) source line; when
+/// provided and the assignment has a non-empty RHS, `full` is set to
+/// `"NAME = <collapsed RHS>"`. When the RHS is empty (e.g. `readonly X=`) or
+/// the original line is unavailable, `full` is `None` and the renderer falls
+/// back to `text`.
+fn constant_sig(trimmed: &str, orig_line: Option<&str>) -> Option<(String, Option<String>)> {
     let mut s = trimmed;
     let mut had_keyword = false;
     loop {
@@ -453,7 +463,43 @@ fn constant_sig(trimmed: &str) -> Option<String> {
         return None;
     }
 
-    Some(format!("{name} = …"))
+    let text = format!("{name} = \u{2026}");
+
+    // Build `full` by finding the same NAME= pattern in the original line and
+    // capturing everything after the `=`, then collapsing whitespace.
+    let full = orig_line.and_then(|orig| {
+        // Find the identifier in the original line: scan forward past any
+        // leading keywords/flags just like we did on the cleaned trimmed line,
+        // then locate `NAME=`.
+        let pattern = format!("{name}=");
+        let eq_pos = orig.find(pattern.as_str())?;
+        let rhs = &orig[eq_pos + pattern.len()..];
+        // Strip trailing comment: find ` #` preceded by whitespace.
+        let rhs = strip_trailing_comment(rhs);
+        let rhs = rhs.trim();
+        if rhs.is_empty() {
+            return None; // e.g. `readonly EMPTY_VAL=`
+        }
+        Some(format!("{name} = {}", collapse_ws(rhs)))
+    });
+
+    Some((text, full))
+}
+
+/// Remove a trailing ` # comment` from a raw RHS string. We look for a `#`
+/// that is preceded by at least one whitespace character (the simplest safe
+/// heuristic that avoids mis-trimming `COLOR="#ff0"` etc.).
+fn strip_trailing_comment(s: &str) -> &str {
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        if chars[i] == '#' && i > 0 && chars[i - 1].is_whitespace() {
+            return &s[..chars[..i].iter().map(|c| c.len_utf8()).sum::<usize>()];
+        }
+        i += 1;
+    }
+    s
 }
 
 /// If `s` begins with the whole word `word` (followed by whitespace or end),
@@ -637,5 +683,40 @@ mod tests {
         let funcs: Vec<&Signature> = s.iter().filter(|x| x.kind == Kind::Function).collect();
         assert_eq!(funcs.len(), 1);
         assert_eq!(funcs[0].text, "real()");
+    }
+
+    #[test]
+    fn constant_full_field_populated() {
+        // `full` must hold the real RHS while `text` keeps the elided form.
+        let src = "MAX=42\nreadonly LIMIT=100\ndeclare -r APP_NAME=\"myapp\"\nEMPTY=\n";
+        let consts: Vec<Signature> = sigs(src)
+            .into_iter()
+            .filter(|x| x.kind == Kind::Constant)
+            .collect();
+        assert_eq!(consts.len(), 4);
+        // Simple numeric RHS.
+        assert_eq!(consts[0].text, "MAX = \u{2026}");
+        assert_eq!(consts[0].full, Some("MAX = 42".to_string()));
+        // `readonly` prefix.
+        assert_eq!(consts[1].text, "LIMIT = \u{2026}");
+        assert_eq!(consts[1].full, Some("LIMIT = 100".to_string()));
+        // Quoted string value — the original quotes are preserved in `full`.
+        assert_eq!(consts[2].text, "APP_NAME = \u{2026}");
+        assert_eq!(consts[2].full, Some("APP_NAME = \"myapp\"".to_string()));
+        // Empty RHS: full should be None (fall back to text).
+        assert_eq!(consts[3].text, "EMPTY = \u{2026}");
+        assert_eq!(consts[3].full, None);
+    }
+
+    #[test]
+    fn function_full_field_is_none() {
+        // Functions are never elided; their `full` field must always be None.
+        let src = "greet() {\n  echo hi\n}\nfunction deploy() {\n  echo dep\n}\n";
+        let s = sigs(src);
+        for sig in &s {
+            if sig.kind == Kind::Function {
+                assert_eq!(sig.full, None, "function {} should have full=None", sig.text);
+            }
+        }
     }
 }

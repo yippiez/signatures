@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'implement-new-language',
+  name: 'language-implement',
   description: 'Add one or many languages to the signatures CLI: opus implements each extractor (brace-family share braces.rs serially; others in parallel) -> sonnet generates many test fixtures + expected snapshots under tests/<lang>/ -> opus runs tests/run.sh and fixes until it passes. Agents are time-boxed so the run never stalls.',
   whenToUse: 'Add + test source languages. args="Rust" | ["Kotlin","Ruby"] | {languages:[...], rounds:3}. Implement (opus) -> generate tests (sonnet) -> test & fix until pass (opus).',
   phases: [

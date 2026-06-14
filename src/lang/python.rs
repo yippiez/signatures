@@ -42,12 +42,17 @@ impl Language for PythonLang {
             if let Some(kind) = def_kind(mstripped) {
                 let (text, consumed) = gather_def(&mlines, &olines, &blines, i);
                 let level = push_level(&mut stack, indent_width, kind == Kind::Function);
-                out.push(Signature { indent: level, kind, text, line: line_no });
+                out.push(Signature { indent: level, kind, text, line: line_no, full: None });
                 i += consumed;
                 continue;
             }
 
-            if let Some(text) = constant_sig(mstripped, olines[i].trim_start()) {
+            let ostripped = olines[i].trim_start();
+            // Compute the leading byte offset so we can slice blines aligned with
+            // the stripped strings (leading whitespace is ASCII-only spaces/tabs).
+            let leading_off = olines[i].len() - ostripped.len();
+            let bstripped = &blines[i][leading_off..];
+            if let Some((text, full)) = constant_sig(mstripped, ostripped, bstripped) {
                 // A constant is only a module/class attribute, never a local: pop
                 // exited scopes and suppress it if it sits inside a function body.
                 pop_to(&mut stack, indent_width);
@@ -59,6 +64,7 @@ impl Language for PythonLang {
                         kind: Kind::Constant,
                         text,
                         line: line_no,
+                        full,
                     });
                 }
             }
@@ -361,13 +367,15 @@ fn normalize(seq: &[(char, bool)]) -> String {
 }
 
 /// If `mstripped` is a module/class-level constant assignment, return its
-/// normalized signature (`NAME[: Type] = …`). `ostripped` is the original text
-/// (same char layout), used to preserve the annotation verbatim.
+/// normalized signature (`NAME[: Type] = …`) plus the optional full text
+/// (`NAME[: Type] = <real rhs>`).  `ostripped` is the original text (same char
+/// layout), used to preserve the annotation and RHS verbatim.
+/// `bstripped` is the per-char classification (CODE/STR/COMMENT) for `ostripped`.
 ///
 /// A constant is an ALL-CAPS identifier (`[A-Z][A-Z0-9_]*`), optionally
 /// `: Type`, followed by a single top-level `=`. Comparisons / augmented forms
 /// are rejected.
-fn constant_sig(mstripped: &str, ostripped: &str) -> Option<String> {
+fn constant_sig(mstripped: &str, ostripped: &str, bstripped: &[u8]) -> Option<(String, Option<String>)> {
     let mc: Vec<char> = mstripped.chars().collect();
     let oc: Vec<char> = ostripped.chars().collect();
     if oc.is_empty() || !oc[0].is_ascii_uppercase() {
@@ -405,13 +413,72 @@ fn constant_sig(mstripped: &str, ostripped: &str) -> Option<String> {
         return None;
     }
 
-    let mut text = name;
+    let mut text = name.clone();
     if !annotation.is_empty() {
         text.push_str(": ");
         text.push_str(&annotation);
     }
     text.push_str(" = …");
-    Some(text)
+
+    // Build the `full` text: same prefix but with the real RHS instead of "…".
+    // Collect original chars after `=`, skipping comment-classified chars at the
+    // end, then collapse internal whitespace.
+    let rhs_start = eq + 1; // char index of first char after `=`
+    let full = if rhs_start < oc.len() {
+        // Trim leading whitespace from rhs.
+        let mut k = rhs_start;
+        while k < oc.len() && oc[k].is_whitespace() {
+            k += 1;
+        }
+        // Find the last non-comment char index (bstripped aligned with oc).
+        let mut end = oc.len();
+        while end > k && bstripped.get(end - 1).copied().unwrap_or(CODE) == COMMENT {
+            end -= 1;
+        }
+        // Also trim trailing whitespace that isn't inside a string.
+        while end > k && bstripped.get(end - 1).copied().unwrap_or(CODE) != STR
+            && oc[end - 1].is_whitespace()
+        {
+            end -= 1;
+        }
+        if k < end {
+            // Collapse runs of non-string whitespace to a single space.
+            let mut collapsed = String::new();
+            let mut prev_ws = false;
+            for idx in k..end {
+                let c = oc[idx];
+                let cls = bstripped.get(idx).copied().unwrap_or(CODE);
+                if cls != STR && c.is_whitespace() {
+                    if !prev_ws {
+                        collapsed.push(' ');
+                        prev_ws = true;
+                    }
+                } else {
+                    collapsed.push(c);
+                    prev_ws = false;
+                }
+            }
+            let rhs = collapsed.trim().to_string();
+            if !rhs.is_empty() {
+                let mut full_text = name;
+                if !annotation.is_empty() {
+                    full_text.push_str(": ");
+                    full_text.push_str(&annotation);
+                }
+                full_text.push_str(" = ");
+                full_text.push_str(&rhs);
+                Some(full_text)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Some((text, full))
 }
 
 /// Find the first top-level (bracket-depth-zero) plain `=` at or after `from`,
@@ -496,12 +563,36 @@ mod tests {
     #[test]
     fn constants_detected_and_rejected() {
         let src = "MAX_SIZE = 10\nMODE: str = \"x\"\nlowercase = 1\nif X == Y:\n    pass\n";
-        let texts: Vec<String> = sigs(src)
-            .iter()
-            .filter(|x| x.kind == Kind::Constant)
-            .map(|x| x.text.clone())
-            .collect();
-        assert_eq!(texts, vec!["MAX_SIZE = …".to_string(), "MODE: str = …".to_string()]);
+        let s = sigs(src);
+        let consts: Vec<&Signature> = s.iter().filter(|x| x.kind == Kind::Constant).collect();
+        assert_eq!(consts.len(), 2);
+        assert_eq!(consts[0].text, "MAX_SIZE = …");
+        assert_eq!(consts[1].text, "MODE: str = …");
+    }
+
+    #[test]
+    fn constant_full_field_set() {
+        // Simple integer constant.
+        let s = sigs("MAX_SIZE = 10\n");
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "MAX_SIZE = …");
+        assert_eq!(s[0].full, Some("MAX_SIZE = 10".to_string()));
+
+        // Annotated constant with string value.
+        let s2 = sigs("APP_NAME: str = \"hello\"\n");
+        assert_eq!(s2.len(), 1);
+        assert_eq!(s2[0].text, "APP_NAME: str = …");
+        assert_eq!(s2[0].full, Some("APP_NAME: str = \"hello\"".to_string()));
+
+        // Constant with trailing comment — comment must not appear in full.
+        let s3 = sigs("LIMIT: int = 42  # the limit\n");
+        assert_eq!(s3.len(), 1);
+        assert_eq!(s3[0].text, "LIMIT: int = …");
+        assert_eq!(s3[0].full, Some("LIMIT: int = 42".to_string()));
+
+        // Functions produce full=None.
+        let s4 = sigs("def foo():\n    pass\n");
+        assert_eq!(s4[0].full, None);
     }
 
     #[test]

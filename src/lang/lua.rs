@@ -45,15 +45,16 @@ impl Language for LuaLang {
                 let (text, consumed) = gather_function(&masked, &orig, i);
                 if !text.is_empty() {
                     let level = push_level(&mut stack, indent_width);
-                    out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no });
+                    out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no, full: None });
                 }
                 i += consumed.max(1);
                 continue;
             }
 
-            if let Some((kind, text)) = class_or_const(stripped) {
+            let orig_stripped = orig.get(i).map(|l| l.trim_start()).unwrap_or("");
+            if let Some((kind, text, full)) = class_or_const(stripped, orig_stripped) {
                 let level = push_level(&mut stack, indent_width);
-                out.push(Signature { indent: level, kind, text, line: line_no });
+                out.push(Signature { indent: level, kind, text, line: line_no, full });
             }
 
             i += 1;
@@ -296,8 +297,13 @@ fn gather_function(masked: &[String], orig: &[&str], start: usize) -> (String, u
 }
 
 /// If `stripped` is a type-like table (`Name = {…}` / `Name = setmetatable(…)`)
-/// or an ALL-CAPS constant assignment, return its kind and normalized text.
-fn class_or_const(stripped: &str) -> Option<(Kind, String)> {
+/// or an ALL-CAPS constant assignment, return its kind, normalized truncated text,
+/// and optional full text (when a value was elided).
+///
+/// `stripped` is the **masked** line (string/comment contents blanked), used for
+/// structural recognition. `orig_stripped` is the same line from the original
+/// source, used to capture the real RHS for the `full` field.
+fn class_or_const(stripped: &str, orig_stripped: &str) -> Option<(Kind, String, Option<String>)> {
     let (lhs, rhs) = split_assign(stripped)?;
     let lhs = lhs.trim();
     // `rhs` may be empty here when the value was a string literal that masking
@@ -315,17 +321,29 @@ fn class_or_const(stripped: &str) -> Option<(Kind, String)> {
     // is capitalized (the common Lua class/module convention).
     if starts_upper(name) {
         if rhs.starts_with('{') {
-            return Some((Kind::Class, format!("{lhs} = {{}}")));
+            return Some((Kind::Class, format!("{lhs} = {{}}"), None));
         }
         if word_prefix(rhs, "setmetatable") {
-            return Some((Kind::Class, format!("{lhs} = setmetatable(...)")));
+            return Some((Kind::Class, format!("{lhs} = setmetatable(...)"), None));
         }
     }
 
     // Module constant: an ALL-CAPS identifier assigned a non-table value.
     if is_all_caps_ident(name) && !rhs.starts_with('{') {
         let prefix = if strip_word(lhs, "local").is_some() { "local " } else { "" };
-        return Some((Kind::Constant, format!("{prefix}{name} = …")));
+        let text = format!("{prefix}{name} = \u{2026}");
+
+        // Capture the real RHS from the original (unmasked) source line for `full`.
+        let full = split_assign(orig_stripped).and_then(|(_, orig_rhs)| {
+            let orig_rhs = orig_rhs.trim_start();
+            if orig_rhs.is_empty() {
+                None
+            } else {
+                Some(format!("{prefix}{name} = {}", collapse_ws(orig_rhs)))
+            }
+        });
+
+        return Some((Kind::Constant, text, full));
     }
 
     None
@@ -548,5 +566,27 @@ mod tests {
                 "MAX = …".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn constants_full_field_captures_real_value() {
+        // `text` must keep "…" but `full` must contain the real RHS.
+        let src = "MAX_SIZE = 1 << 20\nPI = 3.14\nVERSION = \"1.0.0\"\nlocal LIMIT = 100\n";
+        let consts: Vec<Signature> = sigs(src)
+            .into_iter()
+            .filter(|x| x.kind == Kind::Constant)
+            .collect();
+        // Truncated text still uses elision.
+        assert_eq!(consts[0].text, "MAX_SIZE = \u{2026}");
+        assert_eq!(consts[1].text, "PI = \u{2026}");
+        assert_eq!(consts[2].text, "VERSION = \u{2026}");
+        assert_eq!(consts[3].text, "local LIMIT = \u{2026}");
+        // Full field contains the real value.
+        assert_eq!(consts[0].full, Some("MAX_SIZE = 1 << 20".to_string()));
+        assert_eq!(consts[1].full, Some("PI = 3.14".to_string()));
+        // String literal value preserved in full.
+        assert_eq!(consts[2].full, Some("VERSION = \"1.0.0\"".to_string()));
+        // local prefix is kept in full.
+        assert_eq!(consts[3].full, Some("local LIMIT = 100".to_string()));
     }
 }

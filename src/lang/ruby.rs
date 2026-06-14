@@ -81,7 +81,7 @@ impl Language for RubyLang {
                 let is_def = kind == Kind::Function;
                 let (text, consumed, opens) = gather_decl(&lines, i, is_def);
                 let level = decl_depth(&stack);
-                out.push(Signature { indent: level, kind, text, line: line_no });
+                out.push(Signature { indent: level, kind, text, line: line_no, full: None });
                 if opens {
                     stack.push(Frame { is_decl: true });
                 }
@@ -97,9 +97,9 @@ impl Language for RubyLang {
                 continue;
             }
 
-            if let Some(text) = constant_sig(trimmed) {
+            if let Some((text, full)) = constant_sig(trimmed) {
                 let level = decl_depth(&stack);
-                out.push(Signature { indent: level, kind: Kind::Constant, text, line: line_no });
+                out.push(Signature { indent: level, kind: Kind::Constant, text, line: line_no, full });
             }
 
             apply_blocks(&mut stack, &clean);
@@ -298,11 +298,14 @@ fn gather_decl(lines: &[&str], start: usize, is_def: bool) -> (String, usize, bo
 }
 
 /// If `trimmed` is a constant assignment (`NAME = value`), return its normalized
-/// signature `NAME = …`. A constant is an identifier beginning with an uppercase
-/// letter; the value is elided. Comparisons (`==`), hash rockets (`=>`), match
-/// (`=~`), augmented assignments and attribute writes (`Foo.bar = …`) are
-/// rejected.
-fn constant_sig(trimmed: &str) -> Option<String> {
+/// signature `NAME = …` plus the full collapsed declaration (for `--output full`).
+/// A constant is an identifier beginning with an uppercase letter; the value is
+/// elided in the `text`. Comparisons (`==`), hash rockets (`=>`), match (`=~`),
+/// augmented assignments and attribute writes (`Foo.bar = …`) are rejected.
+///
+/// Returns `(truncated_text, full_text)` where `full_text` is `Some` when a
+/// non-empty RHS was captured, and `None` when the RHS is empty or absent.
+fn constant_sig(trimmed: &str) -> Option<(String, Option<String>)> {
     let mut chars = trimmed.char_indices();
     let (_, first) = chars.next()?;
     if !first.is_ascii_uppercase() {
@@ -331,7 +334,20 @@ fn constant_sig(trimmed: &str) -> Option<String> {
         return None;
     }
 
-    Some(format!("{name} = …"))
+    let truncated = format!("{name} = …");
+
+    // Capture the RHS (everything after the `=` sign) for `--output full`.
+    // Strip the leading `=` and any surrounding whitespace, then collapse runs
+    // of whitespace to a single space so multi-line-continued values look clean.
+    let rhs_raw = after[1..].trim();
+    let full = if rhs_raw.is_empty() {
+        None
+    } else {
+        let collapsed = collapse_ws(rhs_raw);
+        Some(format!("{name} = {collapsed}"))
+    };
+
+    Some((truncated, full))
 }
 
 /// Update the block stack for one cleaned line: push for block-opening keywords,
@@ -514,6 +530,37 @@ mod tests {
             .map(|x| x.text.clone())
             .collect();
         assert_eq!(texts, vec!["MAX_SIZE = …".to_string(), "Name = …".to_string()]);
+    }
+
+    #[test]
+    fn constants_full_field_captures_rhs() {
+        // Numeric literal.
+        let s = sigs("MAX_SIZE = 10\n");
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].text, "MAX_SIZE = …");
+        assert_eq!(s[0].full, Some("MAX_SIZE = 10".to_string()));
+
+        // String literal (strip_line blanks the interior, but the `=` and the
+        // quoted delimiters remain so we still capture something).
+        let s2 = sigs("GREETING = \"hello\"\n");
+        assert_eq!(s2.len(), 1);
+        assert_eq!(s2[0].text, "GREETING = …");
+        // The RHS captured from strip_line is `"     "` (blanked interior), which
+        // after trim is `""`, so full should be non-None (contains the delimiters).
+        assert!(s2[0].full.is_some());
+        // The full text must start with the constant name.
+        assert!(s2[0].full.as_deref().unwrap().starts_with("GREETING = "));
+
+        // Empty RHS (value on next line / comment strips it): full stays None.
+        let s3 = sigs("WEIRD = # comment\n");
+        assert_eq!(s3.len(), 1);
+        assert_eq!(s3[0].text, "WEIRD = …");
+        assert_eq!(s3[0].full, None);
+
+        // Array / method-call value.
+        let s4 = sigs("FLAGS = [1, 2, 3].freeze\n");
+        assert_eq!(s4.len(), 1);
+        assert_eq!(s4[0].full, Some("FLAGS = [1, 2, 3].freeze".to_string()));
     }
 
     #[test]

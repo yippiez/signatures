@@ -18,4 +18,8 @@ pub struct Signature {
     pub text: String,
     /// 1-based source line where the declaration starts.
     pub line: usize,
+    /// When this signature elided a value/RHS, the full (collapsed) declaration
+    /// text WITHOUT the `…` elision, e.g. `MAX = 1 << 20`. `None` when nothing
+    /// was elided; renderers fall back to `text` in that case.
+    pub full: Option<String>,
 }
