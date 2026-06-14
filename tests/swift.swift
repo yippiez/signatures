@@ -901,3 +901,30 @@ postfix func +++ (value: Int) -> Int { return value + 1 }
 actor A {
     nonisolated func count() -> Int { return 0 }
 }
+@@CASE@@ multiline_where_clause
+func foo<T, U>() where T: Hashable,
+                        U: Equatable {
+}
+@@CASE@@ where_on_separate_line
+struct S<T>
+    where T: Hashable {
+    var x: T
+}
+@@CASE@@ emoji_identifier
+let 🎉: String = "x"
+let ok: String = "x"
+@@CASE@@ macro_declaration
+macro foo() -> Int = #externalMacro(module: "M", type: "T")
+func bar() -> Int { return 0 }
+@@CASE@@ package_access_modifier
+struct Before {
+    var beforeMember: Int
+}
+package struct Pkg {
+    var pkgMember: String
+}
+@@CASE@@ private_set_modifier
+struct S {
+    private(set) var x: Int
+    var y: Int
+}

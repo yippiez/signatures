@@ -198,7 +198,7 @@ impl Language for BraceLang {
                 }
             }
 
-            let (header, consumed, term) = gather(&mlines, &olines, i);
+            let (header, consumed, term) = gather(&mlines, &olines, i, self.lang);
 
             // Inside a type/class body (tagged `false`), a return-type-less
             // `Name(...)` is a constructor, not a call — let `classify` know.
@@ -1403,7 +1403,7 @@ fn is_ident_byte_char(c: char) -> bool {
 /// opening `{` or a terminating `;` found at paren-depth zero. Returns the
 /// collapsed header text (terminator dropped), the number of lines consumed and
 /// how it ended.
-fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Term) {
+fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String, usize, Term) {
     // `paren` tracks `()`/`[]`, `angle` tracks `<>` (so multi-line generics and
     // braces inside generic bounds don't end the header prematurely).
     let mut paren: i32 = 0;
@@ -1574,6 +1574,15 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                 // attributed correctly) but DROP it from the header text — matching
                 // the convention that constraints are elided from signatures.
                 if next == "where" || next.starts_with("where ") {
+                    // Swift keeps the `where` constraint in the signature (e.g.
+                    // `struct S<T> where T: Hashable`), so resume gathering at the
+                    // where line to join its text rather than dropping it.
+                    if lang == Lang::Swift {
+                        consumed += p - (k + 1);
+                        k = p - 1;
+                        k += 1;
+                        continue;
+                    }
                     let mut q = p;
                     while q < mlines.len() {
                         let l = mlines[q].trim_start();
@@ -1608,7 +1617,20 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                 // method header (`void m()\n  throws IOException {`) — resume
                 // gathering so the clause is joined and the body brace is found.
                 let throws_cont = next == "throws" || next.starts_with("throws ");
-                if matches!(last_word, "class" | "struct" | "enum" | "union") || throws_cont {
+                // A Swift multi-line `where` clause lists each constraint on its
+                // own line, separated by trailing commas (`where T: Hashable,\n
+                // U: Equatable {`). When the gathered header already contains a
+                // top-level `where` and this line ended with a comma, the clause
+                // continues — resume gathering so all constraints are joined.
+                let where_comma_cont = lang == Lang::Swift
+                    && pieces.last().map_or(false, |p| p.trim_end().ends_with(','))
+                    && pieces.iter().any(|p| {
+                        p.split_whitespace().any(|w| w == "where")
+                    });
+                if matches!(last_word, "class" | "struct" | "enum" | "union")
+                    || throws_cont
+                    || where_comma_cont
+                {
                     // Account for any skipped blank lines, then resume gathering
                     // at line `p` (the `k += 1` below advances k from p-1 to p).
                     consumed += p - (k + 1);
@@ -1824,7 +1846,7 @@ fn prefilter(t: &str, lang: Lang) -> bool {
                 }
             }
             Lang::Swift => {
-                if matches!(kw, "func" | "let" | "var" | "subscript" | "init") {
+                if matches!(kw, "func" | "let" | "var" | "subscript" | "init" | "macro") {
                     return true;
                 }
             }
@@ -2144,9 +2166,29 @@ fn classify(
             if matches!(kw, "func" | "init" | "subscript") {
                 return Some((Kind::Function, h.to_string(), None));
             }
-            if matches!(kw, "let" | "var") {
+            // A Swift `macro` declaration is a top-level item analogous to `func`;
+            // its `= #externalMacro(...)` definition is elided like a constant.
+            if kw == "macro" {
                 let (n2, _) = take_ident(rest.trim_start());
                 if n2.is_empty() {
+                    return None;
+                }
+                if find_top_eq(h).is_none() {
+                    return Some((Kind::Function, h.trim().to_string(), None));
+                }
+                return Some((Kind::Constant, const_text(h), const_full(h)));
+            }
+            if matches!(kw, "let" | "var") {
+                let r = rest.trim_start();
+                let (n2, _) = take_ident(r);
+                // Swift identifiers may start with non-ASCII characters that
+                // `take_ident` (ASCII/alphanumeric) misses — e.g. emoji. Accept a
+                // name beginning with any char that is not an operator/opener.
+                let has_name = !n2.is_empty()
+                    || r.chars()
+                        .next()
+                        .map_or(false, |c| !c.is_whitespace() && !matches!(c, ':' | '=' | '(' | '<'));
+                if !has_name {
                     return None;
                 }
                 return Some((Kind::Constant, const_text(h), const_full(h)));
@@ -2570,6 +2612,25 @@ fn split_mods<'a>(s: &'a str, lang: Lang) -> (Vec<&'a str>, &'a str) {
                 continue;
             }
         }
+        // Swift setter-access modifiers `private(set)` / `fileprivate(set)` /
+        // `internal(set)` / `public(set)` / `package(set)`.
+        if lang == Lang::Swift {
+            let setter = ["private", "fileprivate", "internal", "public", "package"]
+                .iter()
+                .find_map(|kw| {
+                    let after = rest.strip_prefix(kw)?;
+                    if !after.starts_with('(') {
+                        return None;
+                    }
+                    let close_rel = after.find(')')?;
+                    Some(rest.len() - after.len() + close_rel + 1)
+                });
+            if let Some(end) = setter {
+                mods.push(rest[..end].trim_end());
+                rest = rest[end..].trim_start();
+                continue;
+            }
+        }
         // Java `non-sealed` contains a hyphen, which `take_ident` would split.
         if lang == Lang::Java && rest.starts_with("non-sealed") {
             mods.push(&rest[..10]);
@@ -2728,6 +2789,7 @@ fn is_modifier(w: &str, lang: Lang) -> bool {
         Lang::Swift => matches!(
             w,
             "open"
+                | "package"
                 | "final"
                 | "fileprivate"
                 | "internal"
