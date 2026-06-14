@@ -159,3 +159,19 @@ int f(int x)
 int exported(int x)
 void die(void)
 int normal(void)
+@@CASE@@ typedef_fn_ptr
+typedef void *(*VoidPtrFn)(int)
+typedef int *(*IntPtrFn)(int)
+typedef void (*VoidFn)(int)
+@@CASE@@ struct_with_attribute
+struct __attribute__((packed)) PackedOne
+@@CASE@@ multiline_const_full
+static const int X = …
+int f(void)
+@@CASE@@ anon_struct_return
+struct { int code; char msg[64]; } get_error(void)
+struct Named
+struct Named get_named(void)
+@@CASE@@ ptr_to_array_return
+int (*get_row(int matrix[][10], int row))[10]
+int normal(int x)

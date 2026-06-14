@@ -632,3 +632,28 @@ __attribute__((noinline)) int f(int x);
 __declspec(dllexport) int exported(int x);
 __attribute__((noreturn)) void die(void) { for(;;); }
 int normal(void);
+@@CASE@@ typedef_fn_ptr
+// Bug: typedef of pointer-return function pointer classified as class
+typedef void *(*VoidPtrFn)(int);
+typedef int *(*IntPtrFn)(int);
+typedef void (*VoidFn)(int);
+@@CASE@@ struct_with_attribute
+// Bug: struct with __attribute__ annotation classified as function
+struct __attribute__((packed)) PackedOne {
+    char a;
+    int b;
+};
+@@CASE@@ multiline_const_full
+// Bug: multi-line constant initializer truncated in --output full
+static const int X =
+    42;
+int f(void) { return X; }
+@@CASE@@ anon_struct_return
+// Bug: function with anonymous struct return type classified as class
+struct { int code; char msg[64]; } get_error(void);
+struct Named { int x; };
+struct Named get_named(void);
+@@CASE@@ ptr_to_array_return
+// Bug: functions with pointer-to-array return type dropped
+int (*get_row(int matrix[][10], int row))[10];
+int normal(int x);

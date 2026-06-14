@@ -1725,10 +1725,21 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
                         || next.starts_with("with ")
                         || next == "implements"
                         || next.starts_with("implements "));
+                // C/C++: a constant whose value is on the next line
+                // (`static const int X =\n    42;`). When we have already seen
+                // a top-level `=` and the next line contains the value (not
+                // a control-flow statement), keep gathering so the value is
+                // included in the span for --output full.
+                let c_const_cont = matches!(lang, Lang::C | Lang::Cpp)
+                    && seen_top_eq
+                    && !next.starts_with('{')
+                    && !next.starts_with(';')
+                    && !next.starts_with("//");
                 if matches!(last_word, "class" | "struct" | "enum" | "union")
                     || throws_cont
                     || where_comma_cont
                     || extends_cont
+                    || c_const_cont
                 {
                     // Account for any skipped blank lines, then resume gathering
                     // at line `p` (the `k += 1` below advances k from p-1 to p).
@@ -2089,6 +2100,14 @@ fn classify(
             let text = if lang == Lang::Cpp { cpp_fn_text(h) } else { fn_text(h) };
             return Some((Kind::Function, text, None));
         }
+        // `typedef RetType (*FnPtrName)(params)` is a function-pointer typedef,
+        // not a struct/type — classify as Kind::Function. The `looks_like_function`
+        // path above misses it when the return type ends with `*` (e.g.
+        // `typedef void *(*FnPtrName)(int)`) because trailing_ident("typedef void *")
+        // is empty. Detect the `(*identifier)` pattern explicitly.
+        if kw == "typedef" && is_typedef_fn_ptr(h) {
+            return Some((Kind::Function, fn_text(h), None));
+        }
         if kw == "typedef" || term == Term::Brace {
             return Some((Kind::Class, class_text(h, lang), None));
         }
@@ -2394,6 +2413,17 @@ fn classify(
         }
     }
 
+    // C/C++ function returning pointer to array: `RetType (*name(params))[N]`.
+    // `looks_like_function` misses this because the prefix before the first `(`
+    // is just the return type keyword with an empty functional name. Detect the
+    // `(*ident(` pattern explicitly.
+    if matches!(lang, Lang::C | Lang::Cpp)
+        && (term == Term::Brace || term == Term::Semi)
+        && is_ptr_to_array_fn(h)
+    {
+        return Some((Kind::Function, fn_text(h), None));
+    }
+
     if matches!(
         lang,
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
@@ -2419,6 +2449,56 @@ fn scala_def_text(h: &str) -> String {
     } else {
         h.trim().to_string()
     }
+}
+
+/// Does `h` look like a C/C++ function with a pointer-to-array return type:
+/// `RetType (*name(params))[N]`? The pattern `(*identifier(` identifies this.
+fn is_ptr_to_array_fn(h: &str) -> bool {
+    let b = h.as_bytes();
+    let mut i = 0;
+    while i + 2 < b.len() {
+        if b[i] == b'(' && b[i + 1] == b'*' {
+            // Found `(*`; now expect an identifier followed by `(`.
+            let mut j = i + 2;
+            let name_start = j;
+            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') { j += 1; }
+            if j > name_start && j < b.len() && b[j] == b'(' {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Does `h` look like a C/C++ typedef function-pointer declaration:
+/// `typedef RetType (*FnPtrName)(Params)` or `typedef RetType *(*FnPtrName)(Params)`?
+/// Detects the `(*identifier)` pattern that `looks_like_function` misses when
+/// the return type ends with `*` (trailing_ident returns "").
+fn is_typedef_fn_ptr(h: &str) -> bool {
+    // Find `(*` pattern
+    let mut i = 0;
+    let b = h.as_bytes();
+    while i + 1 < b.len() {
+        if b[i] == b'(' && b[i + 1] == b'*' {
+            // Check that the content between `(*` and `)` is an identifier.
+            let inner_start = i + 2;
+            // Skip optional `*` chars (for pointer-to-function-pointer).
+            let mut j = inner_start;
+            while j < b.len() && b[j] == b'*' { j += 1; }
+            let name_start = j;
+            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') { j += 1; }
+            if j > name_start && j < b.len() && b[j] == b')' {
+                // Found `(*name)` — check that it's followed by `(`
+                let after_close = j + 1;
+                if after_close < b.len() && b[after_close] == b'(' {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Scala constant text: elide the initializer using [`find_top_eq_scala`] so
@@ -2601,6 +2681,19 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         return false;
     }
     let prefix = name_head[..name_head.len() - name.len()].trim();
+    // C/C++ compiler extension keywords like `__attribute__`, `__declspec`, and
+    // `alignas` that appear in a declaration prefix are NOT function names — they
+    // are annotation/attribute decorators. The masking pass blanks them in the
+    // structural copy but the display copy used for `header` retains them. If
+    // the resolved `name` is a compiler-intrinsic (starts and ends with `__`),
+    // treat it as a non-callable to prevent misclassifying e.g.
+    // `struct __attribute__((packed)) Foo` as a function.
+    if matches!(lang, Lang::C | Lang::Cpp)
+        && name.starts_with("__")
+        && name.ends_with("__")
+    {
+        return false;
+    }
     // A control keyword as the bare callable name is a statement (`if (...)`);
     // a method named like one (`Factory of(...)`) has a return-type prefix.
     if is_control(name) && prefix.is_empty() {
@@ -2645,6 +2738,7 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     let mut angle: i32 = 0;
     let mut bracket: i32 = 0;
     let mut paren: i32 = 0;
+    let mut brace: i32 = 0;
     for ch in prefix.chars() {
         match ch {
             '<' => angle += 1,
@@ -2676,7 +2770,23 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
             '?' if angle == 0 && !matches!(lang, Lang::CSharp | Lang::Ts | Lang::Dart) => {
                 return false
             }
-            '=' | '(' | ')' | '{' | '}' | ';' | '@' if angle == 0 => return false,
+            // C/C++ anonymous struct/union return type: `struct { ... } name()`
+            // has balanced `{}`/`}` in the prefix. Track them so a balanced
+            // `struct { ... }` does not trigger the rejection.
+            '{' if matches!(lang, Lang::C | Lang::Cpp) && angle == 0 => brace += 1,
+            '}' if matches!(lang, Lang::C | Lang::Cpp) && angle == 0 => {
+                if brace > 0 {
+                    brace -= 1;
+                } else {
+                    return false; // unbalanced `}` — reject
+                }
+            }
+            // Reject these chars when at top-level (not inside an inline
+            // struct body or inside angle/paren brackets). When `brace > 0`
+            // we are scanning the field list of an inline struct return type
+            // and these chars are field separators / field declarations.
+            '=' | '(' | ')' | ';' | '@' if angle == 0 && brace == 0 => return false,
+            '{' | '}' if angle == 0 && !matches!(lang, Lang::C | Lang::Cpp) => return false, // non-C/C++ langs
             // A leading `:` in the prefix (Dart/C++ constructor initializer
             // list `Foo() : member_(x), …`) is not a declaration.
             ':' if angle == 0 && paren == 0 && matches!(lang, Lang::Dart | Lang::Cpp) => {
@@ -2688,6 +2798,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
     // An unbalanced `[` means the `(` lives inside a subscript (`dict[f()]`),
     // not a parameter list — reject.
     if bracket > 0 {
+        return false;
+    }
+    // An unbalanced `{` in the prefix means the return type's struct is not
+    // closed — unlikely but guard against it.
+    if brace != 0 {
         return false;
     }
     match lang {
