@@ -682,3 +682,18 @@ class Outer
   def bar
   end
 end
+@@CASE@@ string_default_params
+def greet(name = "World")
+end
+def log(msg, prefix = "[INFO] ")
+end
+def build(host, path = '/api/v1', proto = 'https')
+end
+@@CASE@@ multiline_constant_full
+LOOKUP = {
+  foo: 1,
+  bar: 2
+}.freeze
+SIMPLE = 42
+def after
+end

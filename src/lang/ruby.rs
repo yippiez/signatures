@@ -119,12 +119,22 @@ impl Language for RubyLang {
 
             if let Some((text, full)) = constant_sig(trimmed) {
                 let level = decl_depth(&stack);
+                // Compute span_end by scanning forward to find the last line of
+                // the constant's value (handles multi-line `NAME = {\n…\n}`).
+                let rhs_clean = {
+                    let clean_trimmed = strip_line(trimmed);
+                    clean_trimmed
+                        .find('=')
+                        .map(|eq| clean_trimmed[eq + 1..].to_string())
+                        .unwrap_or_default()
+                };
+                let span_end = constant_span_end(&lines, i, &rhs_clean);
                 out.push(Signature {
                     indent: level,
                     kind: Kind::Constant,
                     text,
                     line: line_no,
-                    span_end: line_no,
+                    span_end,
                     full,
                 });
             }
@@ -265,15 +275,33 @@ fn gather_decl(lines: &[&str], start: usize, is_def: bool) -> (String, usize, bo
     let mut k = start;
     while k < lines.len() {
         consumed += 1;
+        // `clean` is used for structural scanning (bracket counting, end-detection).
+        // `raw` is the original source line, used for display text so that string
+        // literal contents (`= "World"`) are preserved verbatim rather than blanked.
         let clean = strip_line(lines[k]);
-        let src: String =
-            if k == start { clean.trim_start().to_string() } else { clean.trim().to_string() };
+        let raw = lines[k];
 
-        let chars: Vec<char> = src.chars().collect();
+        // `strip_line` is length-preserving (replaces chars with spaces), so the
+        // char-index into `clean` also indexes the same position in `raw`.
+        let leading = if k == start {
+            raw.len() - raw.trim_start().len()
+        } else {
+            raw.len() - raw.trim_start().len()
+        };
+        let src_clean: String =
+            if k == start { clean.trim_start().to_string() } else { clean.trim().to_string() };
+        let src_raw: String =
+            if k == start { raw.trim_start().to_string() } else { raw.trim().to_string() };
+        let _ = leading; // only used for comment stripping below
+
+        let chars: Vec<char> = src_clean.chars().collect();
+        let raw_chars: Vec<char> = src_raw.chars().collect();
         let mut piece = String::new();
         let mut ci = 0;
         while ci < chars.len() {
             let c = chars[ci];
+            // Use the raw char for display; `c` (from clean) for structural decisions.
+            let display_c = raw_chars.get(ci).copied().unwrap_or(c);
             match c {
                 '(' | '[' | '{' => {
                     depth += 1;
@@ -302,7 +330,7 @@ fn gather_decl(lines: &[&str], start: usize, is_def: bool) -> (String, usize, bo
                         || next == Some('(')
                         || matches!(prev, Some('<') | Some('>') | Some('!') | Some('=') | Some(']'));
                     if part_of_op {
-                        piece.push(c);
+                        piece.push(display_c);
                         ci += 1;
                         continue;
                     }
@@ -310,7 +338,7 @@ fn gather_decl(lines: &[&str], start: usize, is_def: bool) -> (String, usize, bo
                     done = true;
                     break;
                 }
-                _ => piece.push(c),
+                _ => piece.push(display_c),
             }
             ci += 1;
         }
@@ -320,7 +348,7 @@ fn gather_decl(lines: &[&str], start: usize, is_def: bool) -> (String, usize, bo
             pieces.push(piece);
         }
 
-        let tail = src.trim_end();
+        let tail = src_clean.trim_end();
         let cont = depth > 0 || tail.ends_with(',') || tail.ends_with('\\');
         if done || !cont || k - start > 100 {
             break;
@@ -384,6 +412,43 @@ fn constant_sig(trimmed: &str) -> Option<(String, Option<String>)> {
     };
 
     Some((truncated, full))
+}
+
+/// Scan forward from `start` (0-indexed) to find the last line of a Ruby constant
+/// value that may span multiple lines (e.g. `NAME = {\n  …\n}`). Uses bracket
+/// counting on the stripped lines. Returns 1-based line number of the last line.
+fn constant_span_end(lines: &[&str], start: usize, rhs_clean: &str) -> usize {
+    // Count initial bracket depth from the RHS portion of the first line.
+    let mut depth: i32 = 0;
+    for c in rhs_clean.chars() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    if depth <= 0 {
+        return start + 1; // 1-based, single line
+    }
+    // Continue scanning subsequent lines until depth returns to 0.
+    let mut k = start + 1;
+    while k < lines.len() && k < start + 500 {
+        let clean = strip_line(lines[k]);
+        for c in clean.chars() {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => {
+                    depth -= 1;
+                    if depth <= 0 {
+                        return k + 1; // 1-based
+                    }
+                }
+                _ => {}
+            }
+        }
+        k += 1;
+    }
+    start + 1 // fallback: single line
 }
 
 /// Update the block stack for one cleaned line: push for block-opening keywords,

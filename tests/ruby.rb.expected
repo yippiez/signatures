@@ -182,3 +182,11 @@ class Widget
 class Outer
   def foo
   def bar
+@@CASE@@ string_default_params
+def greet(name = "World")
+def log(msg, prefix = "[INFO] ")
+def build(host, path = '/api/v1', proto = 'https')
+@@CASE@@ multiline_constant_full
+LOOKUP = …
+SIMPLE = …
+def after
