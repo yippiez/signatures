@@ -48,6 +48,26 @@ impl Language for PythonLang {
             }
 
             let ostripped = olines[i].trim_start();
+            // Python 3.12 `type Alias = …` / `type Generic[T] = …` soft-keyword
+            // type-alias statement (semantically equivalent to a `Name: TypeAlias
+            // = …` constant). Emit it as a module/class-level constant.
+            if let Some(text) = type_alias_sig(mstripped, ostripped) {
+                pop_to(&mut stack, indent_width);
+                let suppress = stack.last().map_or(false, |&(_, is_fn)| is_fn);
+                if !suppress {
+                    let level = stack.len();
+                    out.push(Signature {
+                        indent: level,
+                        kind: Kind::Constant,
+                        text,
+                        line: line_no,
+                        full: None,
+                    });
+                }
+                i += 1;
+                continue;
+            }
+
             // Compute the leading byte offset so we can slice blines aligned with
             // the stripped strings (leading whitespace is ASCII-only spaces/tabs).
             let leading_off = olines[i].len() - ostripped.len();
@@ -375,6 +395,69 @@ fn normalize(seq: &[(char, bool)]) -> String {
 /// A constant is an ALL-CAPS identifier (`[A-Z][A-Z0-9_]*`), optionally
 /// `: Type`, followed by a single top-level `=`. Comparisons / augmented forms
 /// are rejected.
+/// Detect a Python 3.12 `type` soft-keyword alias statement and return its
+/// signature text (value elided): `type Alias = …`, `type Box[T] = …`. The line
+/// must be `type` + whitespace + an identifier (the alias name), then an optional
+/// `[...]` type-parameter list, then a top-level `=`. This rules out a variable
+/// named `type` (`type = 5`, `type: int = 5`) and the `type(x)` builtin call.
+fn type_alias_sig(mstripped: &str, ostripped: &str) -> Option<String> {
+    let rest = mstripped.strip_prefix("type")?;
+    // Require whitespace after `type` (so `type(` / `type=` are excluded).
+    if !rest.starts_with(|c: char| c == ' ' || c == '\t') {
+        return None;
+    }
+    let mc: Vec<char> = mstripped.chars().collect();
+    let oc: Vec<char> = ostripped.chars().collect();
+    let mut j = 4; // past "type"
+    while j < mc.len() && mc[j].is_whitespace() {
+        j += 1;
+    }
+    // Alias name: a Python identifier (letters/underscore, then alphanumerics).
+    let name_start = j;
+    if j >= mc.len() || !(mc[j].is_alphabetic() || mc[j] == '_') {
+        return None;
+    }
+    while j < mc.len() && (mc[j].is_alphanumeric() || mc[j] == '_') {
+        j += 1;
+    }
+    if j == name_start {
+        return None;
+    }
+    // Optional `[T, ...]` type-parameter list.
+    if j < mc.len() && mc[j] == '[' {
+        let mut depth = 0i32;
+        while j < mc.len() {
+            match mc[j] {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    j += 1;
+                    if depth == 0 {
+                        break;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        if depth != 0 {
+            return None;
+        }
+    }
+    let after_params = j;
+    while j < mc.len() && mc[j].is_whitespace() {
+        j += 1;
+    }
+    // A top-level `=` (not `==`) must follow.
+    if j >= mc.len() || mc[j] != '=' || mc.get(j + 1) == Some(&'=') {
+        return None;
+    }
+    // Build `type <name>[<params>] = …` from the original text.
+    let header: String = oc.get(name_start..after_params.min(oc.len()))?.iter().collect();
+    Some(format!("type {} = …", header.trim()))
+}
+
 fn constant_sig(mstripped: &str, ostripped: &str, bstripped: &[u8]) -> Option<(String, Option<String>)> {
     let mc: Vec<char> = mstripped.chars().collect();
     let oc: Vec<char> = ostripped.chars().collect();

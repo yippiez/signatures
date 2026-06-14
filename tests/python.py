@@ -1344,3 +1344,13 @@ def f(x=rb"ends_with_backslash\"):
 
 def g() -> int:
     return 1
+@@CASE@@ type_alias_statement_3_12
+from typing import TypeAlias
+
+MY_ALIAS: TypeAlias = list[float]
+
+type Alias = int
+type GenericAlias[T] = list[T]
+
+def func() -> Alias:
+    pass
