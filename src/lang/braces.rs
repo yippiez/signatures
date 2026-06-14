@@ -373,6 +373,8 @@ fn go_group_block(
     while k < mlines.len() {
         consumed += 1;
         let raw = mlines[k];
+        let start_depth = depth;
+        let start_bdepth = bdepth;
         // A new member begins only at the group's own paren level (`depth == 1`,
         // not inside a nested call/composite literal), outside any struct body,
         // and not while continuing the previous member's value.
@@ -415,17 +417,6 @@ fn go_group_block(
                 }
             }
         }
-        // Does this line's value expression continue onto the next? (Only meaningful
-        // at group level; a trailing binary/continuation operator means "more".)
-        if depth == 1 && bdepth == 0 {
-            let tl = raw.trim_end();
-            cont = tl.ends_with(|c: char| {
-                matches!(
-                    c,
-                    '+' | '-' | '*' | '/' | '%' | '|' | '&' | '^' | '<' | '>' | '=' | ',' | '('
-                )
-            });
-        }
         for c in raw.chars() {
             match c {
                 '(' => depth += 1,
@@ -442,6 +433,27 @@ fn go_group_block(
                 }
                 _ => {}
             }
+        }
+        // Does the next line continue the current member, or start a new one?
+        // It is a continuation when this line left us inside a nested paren /
+        // brace (`depth > 1` or `bdepth > 0`), or when — having both opened at
+        // group level — it ended with a trailing binary/continuation operator
+        // (e.g. `A = b +`). A line that opened a paren and closed it again on
+        // the same line (`A = f(1)` net depth back to 1) is NOT a continuation.
+        if depth > 1 || bdepth > 0 {
+            cont = true;
+        } else if start_depth == 1 && start_bdepth == 0 {
+            let tl = raw.trim_end();
+            cont = tl.ends_with(|c: char| {
+                matches!(
+                    c,
+                    '+' | '-' | '*' | '/' | '%' | '|' | '&' | '^' | '<' | '>' | '=' | ',' | '('
+                )
+            });
+        } else {
+            // We descended back to group level on this line (a multi-line value's
+            // closing paren); the next line starts a fresh member.
+            cont = false;
         }
         if depth <= 0 {
             break;

@@ -643,3 +643,22 @@ const (
 )
 
 func After() {}
+@@CASE@@ group_inline_paren_call
+package main
+
+var (
+	A = f(
+		1)
+	B = 2
+)
+@@CASE@@ group_closing_paren_own_line
+package main
+
+var (
+	A = f(
+		1,
+	)
+	B = 3
+)
+
+func After() {}
