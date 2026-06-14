@@ -77,6 +77,106 @@ pub fn render(
     }
 }
 
+/// Whether each signature should be EMITTED in full mode, by coverage: walking
+/// in source order, a declaration is emitted iff its start line is not already
+/// inside a previously-emitted declaration's printed span. This yields the
+/// outermost declarations plus any declaration whose enclosing block is itself
+/// not an emitted signature (e.g. a Rust `impl` block's methods) — each with its
+/// full body — while never duplicating members that already appear inside a
+/// printed class/struct block.
+pub fn full_mode_emit(sigs: &[Signature]) -> Vec<bool> {
+    let mut emit = vec![false; sigs.len()];
+    let mut covered_until = 0usize; // 1-based last line covered by an emitted span
+    for (i, s) in sigs.iter().enumerate() {
+        if s.line > covered_until {
+            emit[i] = true;
+            covered_until = covered_until.max(s.span_end.max(s.line));
+        }
+    }
+    emit
+}
+
+/// Render ONE declaration in full mode: the verbatim source lines from `s.line`
+/// through `s.span_end` (1-based, inclusive). `lines` is the original source
+/// split on `\n`. Plain format returns the raw block (never colorized — coloring
+/// multi-line code is out of scope, so `--no-color` is a no-op here). Jsonl
+/// returns one JSON object whose `text` is the full verbatim body. The CALLER
+/// decides which signatures to render (see [`full_mode_emit`]); this only maps a
+/// chosen signature to its source span. Returns `None` only if the span is out
+/// of range.
+pub fn render_one_full(path: &str, s: &Signature, lines: &[&str], format: Format) -> Option<String> {
+    // Clamp the 1-based span to the available lines; `line`/`span_end` come from
+    // the same source so they are normally in range.
+    let start = s.line.saturating_sub(1);
+    let end = s.span_end.max(s.line).min(lines.len());
+    if start >= lines.len() {
+        return None;
+    }
+    let body = lines[start..end].join("\n");
+    match format {
+        Format::Plain => Some(body),
+        Format::Jsonl => {
+            let kind = match s.kind {
+                Kind::Function => "function",
+                Kind::Class => "class",
+                Kind::Constant => "constant",
+            };
+            let mut o = String::new();
+            o.push_str("{\"file\":");
+            json_string(path, &mut o);
+            o.push_str(",\"line\":");
+            o.push_str(&s.line.to_string());
+            o.push_str(",\"indent\":");
+            o.push_str(&s.indent.to_string());
+            o.push_str(",\"kind\":\"");
+            o.push_str(kind);
+            o.push_str("\",\"text\":");
+            json_string(&body, &mut o);
+            o.push('}');
+            Some(o)
+        }
+    }
+}
+
+/// Append the full-mode rendered block for one file to `out`. Emits the
+/// outermost declarations (see [`full_mode_emit`]); members already inside a
+/// printed block are not repeated. Plain format prints each decl's verbatim
+/// source span with exactly one blank line between consecutive decls (and a
+/// header line first when `show_header`). Jsonl prints one object per emitted
+/// decl. `lines` is the original source split into lines.
+pub fn render_full(
+    path: &str,
+    sigs: &[Signature],
+    lines: &[&str],
+    colors: &Colors,
+    show_header: bool,
+    format: Format,
+    out: &mut String,
+) {
+    if format == Format::Plain && show_header {
+        out.push_str(&colors.header(path));
+        out.push('\n');
+    }
+    let emit = full_mode_emit(sigs);
+    let mut first = true;
+    for (s, &keep) in sigs.iter().zip(emit.iter()) {
+        if !keep {
+            continue;
+        }
+        let block = match render_one_full(path, s, lines, format) {
+            Some(b) => b,
+            None => continue,
+        };
+        if format == Format::Plain && !first {
+            // Exactly one blank line between consecutive emitted decls.
+            out.push('\n');
+        }
+        out.push_str(&block);
+        out.push('\n');
+        first = false;
+    }
+}
+
 /// Append `s` to `out` as a JSON string literal (including the surrounding
 /// quotes). Hand-rolled, no dependencies. Escapes `\`, `"`, control chars
 /// (`\n \r \t` and `\u00XX` for other bytes < 0x20). UTF-8 is kept as-is.
@@ -279,7 +379,7 @@ mod tests {
     use super::*;
 
     fn sig(kind: Kind, text: &str) -> Signature {
-        Signature { indent: 0, kind, text: text.to_string(), line: 1, full: None }
+        Signature { indent: 0, kind, text: text.to_string(), line: 1, span_end: 1, full: None }
     }
 
     #[test]
@@ -365,23 +465,78 @@ mod tests {
         );
     }
 
-    #[test]
-    fn full_falls_back_to_text_when_none() {
-        let colors = Colors { enabled: false };
-        let s = sig(Kind::Constant, "MAX = …");
-        let trunc = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Truncated);
-        let full = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Full);
-        assert_eq!(trunc, full);
+    // ---- full mode ----
+
+    fn span_sig(kind: Kind, text: &str, line: usize, span_end: usize, indent: usize) -> Signature {
+        Signature { indent, kind, text: text.to_string(), line, span_end, full: None }
     }
 
     #[test]
-    fn full_expands_when_some() {
-        let colors = Colors { enabled: false };
-        let mut s = sig(Kind::Constant, "MAX = …");
-        s.full = Some("MAX = 1 << 20".to_string());
-        let full = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Full);
-        assert_eq!(full, "MAX = 1 << 20");
-        let trunc = render_one("a.py", &s, &colors, Format::Plain, OutputMode::Truncated);
-        assert_eq!(trunc, "MAX = …");
+    fn full_prints_verbatim_span() {
+        // A function whose body spans lines 1..=3 prints those raw lines.
+        let src = "def greet(name):\n    \"\"\"doc\"\"\"\n    return name\n";
+        let lines: Vec<&str> = src.lines().collect();
+        let s = span_sig(Kind::Function, "def greet(name):", 1, 3, 0);
+        let block = render_one_full("a.py", &s, &lines, Format::Plain).unwrap();
+        assert_eq!(block, "def greet(name):\n    \"\"\"doc\"\"\"\n    return name");
+    }
+
+    #[test]
+    fn full_emit_covers_members_but_not_uncovered() {
+        // Coverage rule: a member inside a printed class span is NOT re-emitted,
+        // but a declaration whose enclosing block is itself not a signature
+        // (e.g. a Rust `impl` block's method) IS emitted on its own.
+        let sigs = vec![
+            span_sig(Kind::Class, "class C:", 1, 3, 0), // span 1..=3
+            span_sig(Kind::Function, "def m(self):", 2, 3, 1), // inside C -> covered
+            // A method at line 5 inside a non-emitted `impl`-like wrapper: its
+            // start line (5) is past the class span (3), so it is emitted.
+            span_sig(Kind::Function, "fn new()", 5, 7, 1),
+        ];
+        let emit = full_mode_emit(&sigs);
+        assert_eq!(emit, vec![true, false, true]);
+    }
+
+    #[test]
+    fn full_one_blank_between_decls_and_class_includes_members() {
+        // Two top-level decls: a constant (line 1) and a class spanning 3..=5
+        // whose method body appears inside the class block, NOT as a separate
+        // emitted entry.
+        let src = "MAX = 5\n\nclass C:\n    def m(self):\n        pass\n";
+        let lines: Vec<&str> = src.lines().collect();
+        let sigs = vec![
+            span_sig(Kind::Constant, "MAX = …", 1, 1, 0),
+            span_sig(Kind::Class, "class C:", 3, 5, 0),
+            span_sig(Kind::Function, "def m(self):", 4, 5, 1), // nested, skipped
+        ];
+        let mut out = String::new();
+        render_full("a.py", &sigs, &lines, &Colors { enabled: false }, false, Format::Plain, &mut out);
+        assert_eq!(out, "MAX = 5\n\nclass C:\n    def m(self):\n        pass\n");
+        // The method line is present (inside the class body) but not repeated.
+        assert_eq!(out.matches("def m(self):").count(), 1);
+    }
+
+    #[test]
+    fn full_no_color_even_when_enabled() {
+        let src = "def f():\n    pass\n";
+        let lines: Vec<&str> = src.lines().collect();
+        let sigs = vec![span_sig(Kind::Function, "def f():", 1, 2, 0)];
+        let mut out = String::new();
+        render_full("a.py", &sigs, &lines, &Colors { enabled: true }, false, Format::Plain, &mut out);
+        assert!(!out.contains('\x1b'), "full mode must never colorize: {out:?}");
+        assert_eq!(out, "def f():\n    pass\n");
+    }
+
+    #[test]
+    fn full_jsonl_one_object_with_verbatim_text() {
+        let src = "def f(a):\n    return a\n";
+        let lines: Vec<&str> = src.lines().collect();
+        let s = span_sig(Kind::Function, "def f(a):", 1, 2, 0);
+        let line = render_one_full("a.py", &s, &lines, Format::Jsonl).unwrap();
+        assert!(!line.contains('\x1b'));
+        assert_eq!(
+            line,
+            "{\"file\":\"a.py\",\"line\":1,\"indent\":0,\"kind\":\"function\",\"text\":\"def f(a):\\n    return a\"}"
+        );
     }
 }

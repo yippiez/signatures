@@ -26,9 +26,15 @@ impl Language for LuaLang {
         // Original lines (same per-line length as `masked`) so signature text can
         // keep literal content like a string table key `T["onClick"]`.
         let orig: Vec<&str> = source.lines().collect();
-        let mut out = Vec::new();
+        let mut out: Vec<Signature> = Vec::new();
         // Stack of indent widths of enclosing declarations, for nesting levels.
         let mut stack: Vec<usize> = Vec::new();
+        // Index in `out` of the currently-open top-level (indent 0) declaration
+        // whose block we are still scanning, and the last non-blank source line
+        // (1-based) seen inside it. A later column-0 line finalizes its body's
+        // `span_end` to that last non-blank line.
+        let mut open_top: Option<usize> = None;
+        let mut last_nonblank: usize = 0;
         let mut i = 0;
 
         while i < masked.len() {
@@ -41,11 +47,39 @@ impl Language for LuaLang {
             }
             let indent_width = leading_width(line);
 
+            // A column-0 line closes any open top-level declaration's body. In
+            // Lua the block terminator (`end`, or the `}` / `})` closing a table)
+            // sits at the declaration's own indent (column 0), so include that
+            // closing line in the span; any other column-0 line (a new sibling
+            // declaration / statement) ends the body at the previous line.
+            if indent_width == 0 {
+                if let Some(idx) = open_top.take() {
+                    out[idx].span_end = if is_block_terminator(stripped) {
+                        line_no
+                    } else {
+                        last_nonblank
+                    };
+                }
+            }
+            last_nonblank = line_no;
+
             if is_function_start(stripped) {
                 let (text, consumed) = gather_function(&masked, &orig, i);
                 if !text.is_empty() {
                     let level = push_level(&mut stack, indent_width);
-                    out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no, full: None });
+                    let header_end = (i + consumed.max(1)).min(masked.len());
+                    last_nonblank = header_end;
+                    out.push(Signature {
+                        indent: level,
+                        kind: Kind::Function,
+                        text,
+                        line: line_no,
+                        span_end: header_end,
+                        full: None,
+                    });
+                    if level == 0 {
+                        open_top = Some(out.len() - 1);
+                    }
                 }
                 i += consumed.max(1);
                 continue;
@@ -54,10 +88,27 @@ impl Language for LuaLang {
             let orig_stripped = orig.get(i).map(|l| l.trim_start()).unwrap_or("");
             if let Some((kind, text, full)) = class_or_const(stripped, orig_stripped) {
                 let level = push_level(&mut stack, indent_width);
-                out.push(Signature { indent: level, kind, text, line: line_no, full });
+                out.push(Signature {
+                    indent: level,
+                    kind,
+                    text,
+                    line: line_no,
+                    span_end: line_no,
+                    full,
+                });
+                // A type-like table assigned a brace value (`Name = {`) may open a
+                // multi-line body; treat it as an open top-level block so its
+                // closing lines are captured. Constants are single-line.
+                if level == 0 && kind == Kind::Class {
+                    open_top = Some(out.len() - 1);
+                }
             }
 
             i += 1;
+        }
+
+        if let Some(idx) = open_top.take() {
+            out[idx].span_end = last_nonblank;
         }
 
         out
@@ -185,6 +236,18 @@ fn mask_lines(source: &str) -> Vec<String> {
     }
 
     out
+}
+
+/// Is `stripped` (a masked, left-trimmed line at the declaration's own indent) a
+/// block-terminating line that belongs to the block being closed — the `end`
+/// keyword or a closing `}` of a table constructor (`}` / `})` / `},`)? Such a
+/// line is the last line of the body span; any other column-0 line is the start
+/// of a new sibling and is excluded from the span.
+fn is_block_terminator(stripped: &str) -> bool {
+    if word_prefix(stripped, "end") {
+        return true;
+    }
+    matches!(stripped.chars().next(), Some('}') | Some(')'))
 }
 
 /// Width of the leading whitespace, counting a tab as four columns.

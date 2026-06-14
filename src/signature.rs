@@ -18,6 +18,12 @@ pub struct Signature {
     pub text: String,
     /// 1-based source line where the declaration starts.
     pub line: usize,
+    /// 1-based source line of the LAST line of this declaration's full span —
+    /// the closing line of its body block. For a single-line declaration or one
+    /// with no brace/indent body, this equals `line` (or the last line of a
+    /// multi-line gathered header). Used by `--output full` to print the
+    /// complete verbatim source of each top-level declaration.
+    pub span_end: usize,
     /// When this signature elided a value/RHS, the full (collapsed) declaration
     /// text WITHOUT the `…` elision, e.g. `MAX = 1 << 20`. `None` when nothing
     /// was elided; renderers fall back to `text` in that case.

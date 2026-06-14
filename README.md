@@ -19,7 +19,7 @@ usage: signatures [--format <plain|jsonl>] [--output <truncated|full>] [--stream
 
 Options:
   --format <plain|jsonl>      output format (default: plain). jsonl emits one JSON object per signature per line (no color).
-  --output <truncated|full>   value display (default: truncated). full expands elided values (the "…") to the full code part.
+  --output <truncated|full>   detail level (default: truncated). full prints the complete verbatim source of each top-level decl.
   --stream                    stream each finding as produced (flush per line)
   --no-color                  disable ANSI colors (colors are on by default)
   -h, --help                  show this help
@@ -46,10 +46,17 @@ Multiple files or a whole directory:
 $ signatures src/*.rs lib/utils.py
 ```
 
-Show full values instead of `…`:
+Print the complete source of each top-level declaration (`--output full`) — the
+outline expanded to whole bodies; nested members appear inside their parent's
+block rather than as separate lines:
 
 ```
-$ signatures --output full sample.py
+$ signatures --output full demo.py
+MAX = 5
+
+class Greeter:
+    def greet(self):
+        return "hi"
 ```
 
 Machine-readable output (one JSON object per signature per line):

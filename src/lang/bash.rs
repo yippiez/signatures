@@ -26,11 +26,17 @@ impl Language for BashLang {
         // for the `full` field of constant signatures.
         let originals: Vec<&str> = source.lines().collect();
 
-        let mut out = Vec::new();
+        let mut out: Vec<Signature> = Vec::new();
         // Brace nesting depth (clamped at >= 0).
         let mut depth: i32 = 0;
         // Recorded depth of each currently-open enclosing function definition.
         let mut stack: Vec<i32> = Vec::new();
+        // Index in `out` of the currently-open top-level function whose body we
+        // are still inside, and the last source line (1-based) seen within it.
+        // Finalized to that last line once the body's braces close (the function
+        // frame is popped back to the top level).
+        let mut open_top: Option<usize> = None;
+        let mut last_line: usize = 0;
         let mut i = 0;
 
         while i < cleaned.len() {
@@ -40,6 +46,13 @@ impl Language for BashLang {
                     stack.pop();
                 } else {
                     break;
+                }
+            }
+            // If the top-level function's body has closed (stack back to empty),
+            // finalize its span to the last line seen inside it.
+            if stack.is_empty() {
+                if let Some(idx) = open_top.take() {
+                    out[idx].span_end = last_line;
                 }
             }
 
@@ -53,13 +66,33 @@ impl Language for BashLang {
                 continue;
             }
 
+            // Track the last line that belongs to the open top-level body.
+            if open_top.is_some() {
+                last_line = line_no;
+            }
+
             if is_func_start(trimmed) {
                 let level = stack.len();
                 let (text, consumed) = gather_func(&cleaned, i);
-                out.push(Signature { indent: level, kind: Kind::Function, text, line: line_no, full: None });
+                let span_end = (i + consumed).min(cleaned.len());
+                out.push(Signature {
+                    indent: level,
+                    kind: Kind::Function,
+                    text,
+                    line: line_no,
+                    span_end,
+                    full: None,
+                });
+                let idx = out.len() - 1;
                 stack.push(depth);
                 for k in i..(i + consumed) {
                     depth = bump(depth, brace_delta(&cleaned[k]));
+                }
+                // A top-level function body that actually opened (depth grew)
+                // becomes the open block; its span runs to its closing brace.
+                if level == 0 && depth > 0 {
+                    open_top = Some(idx);
+                    last_line = span_end;
                 }
                 i += consumed;
                 continue;
@@ -69,12 +102,24 @@ impl Language for BashLang {
             // function body).
             if stack.is_empty() && depth == 0 {
                 if let Some((text, full)) = constant_sig(trimmed, originals.get(i).copied()) {
-                    out.push(Signature { indent: 0, kind: Kind::Constant, text, line: line_no, full });
+                    out.push(Signature {
+                        indent: 0,
+                        kind: Kind::Constant,
+                        text,
+                        line: line_no,
+                        span_end: line_no,
+                        full,
+                    });
                 }
             }
 
             depth = bump(depth, brace_delta(line));
             i += 1;
+        }
+
+        // Finalize any still-open top-level function (e.g. EOF inside body).
+        if let Some(idx) = open_top.take() {
+            out[idx].span_end = last_line;
         }
 
         out

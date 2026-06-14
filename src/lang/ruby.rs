@@ -31,6 +31,11 @@ impl Language for RubyLang {
         let mut in_block_comment = false;
         // Open heredoc terminators, in body order (a line may open several).
         let mut heredocs: Vec<String> = Vec::new();
+        // Index in `out` of the currently-open top-level (decl-depth 0)
+        // declaration whose block we are still inside. Its `span_end` is updated
+        // to the last line consumed while it remains open; when the declaration
+        // stack returns to depth 0 (its matching `end`), it is finalized.
+        let mut open_top: Option<usize> = None;
         let mut i = 0;
 
         while i < lines.len() {
@@ -81,7 +86,16 @@ impl Language for RubyLang {
                 let is_def = kind == Kind::Function;
                 let (text, consumed, opens) = gather_decl(&lines, i, is_def);
                 let level = decl_depth(&stack);
-                out.push(Signature { indent: level, kind, text, line: line_no, full: None });
+                let span_end = (i + consumed).min(lines.len());
+                out.push(Signature {
+                    indent: level,
+                    kind,
+                    text,
+                    line: line_no,
+                    span_end,
+                    full: None,
+                });
+                let idx = out.len() - 1;
                 if opens {
                     stack.push(Frame { is_decl: true });
                 }
@@ -93,17 +107,39 @@ impl Language for RubyLang {
                     apply_blocks(&mut stack, &cj);
                     detect_heredoc_openers(&cj, &mut heredocs);
                 }
+                // A top-level decl that opens a body becomes the open block to be
+                // finalized when its `end` is reached. One that does not open a
+                // body (endless / one-line method) already has span_end == header.
+                if level == 0 && opens && decl_depth(&stack) > 0 {
+                    open_top = Some(idx);
+                }
                 i += consumed;
                 continue;
             }
 
             if let Some((text, full)) = constant_sig(trimmed) {
                 let level = decl_depth(&stack);
-                out.push(Signature { indent: level, kind: Kind::Constant, text, line: line_no, full });
+                out.push(Signature {
+                    indent: level,
+                    kind: Kind::Constant,
+                    text,
+                    line: line_no,
+                    span_end: line_no,
+                    full,
+                });
             }
 
             apply_blocks(&mut stack, &clean);
             detect_heredoc_openers(&clean, &mut heredocs);
+            // Extend / finalize the open top-level block: while still inside it,
+            // its span_end advances to this line; once the declaration stack
+            // returns to depth 0 (its `end` line), finalize it.
+            if let Some(idx) = open_top {
+                out[idx].span_end = line_no;
+                if decl_depth(&stack) == 0 {
+                    open_top = None;
+                }
+            }
             i += 1;
         }
 

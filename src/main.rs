@@ -71,6 +71,7 @@ fn run(cfg: cli::Config) -> i32 {
 
         let sigs = language.extract(source);
         let path = f.display().to_string();
+        let full = cfg.output == cli::OutputMode::Full;
 
         if cfg.stream {
             // Incremental path: write+flush after each emitted unit. Must be
@@ -85,17 +86,48 @@ fn run(cfg: cli::Config) -> i32 {
                 let _ = stdout.write_all(hdr.as_bytes());
                 let _ = stdout.flush();
             }
-            for s in &sigs {
-                let mut line = render::render_one(&path, s, &colors, cfg.format, cfg.output);
-                line.push('\n');
-                let _ = stdout.write_all(line.as_bytes());
-                let _ = stdout.flush();
+            if full {
+                // Full mode: emit the outermost decls (coverage rule), flushing
+                // per block, with one blank line between consecutive plain blocks.
+                let lines: Vec<&str> = source.lines().collect();
+                let emit = render::full_mode_emit(&sigs);
+                let mut first_block = true;
+                for (s, &keep) in sigs.iter().zip(emit.iter()) {
+                    if !keep {
+                        continue;
+                    }
+                    if let Some(block) =
+                        render::render_one_full(&path, s, &lines, cfg.format)
+                    {
+                        let mut chunk = String::new();
+                        if plain && !first_block {
+                            chunk.push('\n');
+                        }
+                        chunk.push_str(&block);
+                        chunk.push('\n');
+                        let _ = stdout.write_all(chunk.as_bytes());
+                        let _ = stdout.flush();
+                        first_block = false;
+                    }
+                }
+            } else {
+                for s in &sigs {
+                    let mut line = render::render_one(&path, s, &colors, cfg.format, cfg.output);
+                    line.push('\n');
+                    let _ = stdout.write_all(line.as_bytes());
+                    let _ = stdout.flush();
+                }
             }
         } else {
             if plain && !first {
                 out.push('\n');
             }
-            render::render(&path, &sigs, &colors, show_header, cfg.format, cfg.output, &mut out);
+            if full {
+                let lines: Vec<&str> = source.lines().collect();
+                render::render_full(&path, &sigs, &lines, &colors, show_header, cfg.format, &mut out);
+            } else {
+                render::render(&path, &sigs, &colors, show_header, cfg.format, cfg.output, &mut out);
+            }
         }
         first = false;
     }
@@ -145,8 +177,10 @@ fn print_help() {
     println!("Options:");
     println!("  --format <plain|jsonl>      output format (default: plain). jsonl emits one");
     println!("                              JSON object per signature per line (no color).");
-    println!("  --output <truncated|full>   value display (default: truncated). full expands");
-    println!("                              elided values (the \"…\") to the full code part.");
+    println!("  --output <truncated|full>   detail level (default: truncated). full prints the");
+    println!("                              complete verbatim source of each top-level decl");
+    println!("                              (bodies included; nested members shown inside their");
+    println!("                              parent; not colorized).");
     println!("  --stream                    stream each finding as produced (flush per line)");
     println!("  --no-color    disable ANSI colors (colors are on by default)");
     println!("  -h, --help    show this help");

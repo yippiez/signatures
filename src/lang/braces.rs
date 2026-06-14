@@ -89,6 +89,13 @@ impl Language for BraceLang {
         // whose local `const`/`var`/`let` declarations must be suppressed;
         // `false` marks a type/class body whose members are real declarations.
         let mut stack: Vec<bool> = Vec::new();
+        // Parallel to `stack`: `open[k]` holds the `out` index of the
+        // declaration that owns brace level `k` (or `None` for an anonymous
+        // block, or a non-emitted wrapper like a Rust `impl`). When level `k`'s
+        // closing `}` is reached, that declaration's `span_end` is finalized to
+        // the closing line — giving every declaration, at any nesting depth, a
+        // correct full-body span for `--output full`.
+        let mut open: Vec<Option<usize>> = Vec::new();
         let mut i = 0;
 
         while i < mlines.len() {
@@ -141,10 +148,19 @@ impl Language for BraceLang {
                         kind,
                         text: tidy(&collapse_ws(&text)),
                         line: i + 1,
+                        span_end: i + 1,
                         full: full.map(|f| tidy(&collapse_ws(&f))),
                     });
                 }
-                update_stack(&mut stack, &mlines[i..=i], None);
+                update_stack_tracked(
+                    &mut stack,
+                    &mut open,
+                    &mlines[i..=i],
+                    None,
+                    None,
+                    i + 1,
+                    &mut out,
+                );
                 // A directive ending in `\` continues onto the following lines;
                 // skip them so multi-line macro bodies are not scanned as
                 // top-level declarations.
@@ -184,7 +200,15 @@ impl Language for BraceLang {
                 {
                     tag = Some(true);
                 }
-                update_stack(&mut stack, &mlines[i..=i], tag);
+                update_stack_tracked(
+                    &mut stack,
+                    &mut open,
+                    &mlines[i..=i],
+                    tag,
+                    None,
+                    i + 1,
+                    &mut out,
+                );
                 i += 1;
                 continue;
             }
@@ -204,6 +228,10 @@ impl Language for BraceLang {
             // `Name(...)` is a constructor, not a call — let `classify` know.
             let in_type_body = stack.last().copied() == Some(false);
             let mut pending: Option<bool> = None;
+            // Index of a top-level (decl_indent == 0) signature pushed here, to be
+            // marked as the open block once we know its body opened.
+            let mut pushed: Option<usize> = None;
+            let span_end = (i + consumed.max(1)).min(mlines.len());
             if let Some((kind, text, full)) = classify(&header, term, self.lang, in_type_body) {
                 let in_fn_body = stack.last().copied().unwrap_or(false);
                 let suppress = in_fn_body
@@ -214,8 +242,10 @@ impl Language for BraceLang {
                         kind,
                         text: tidy(&collapse_ws(&text)),
                         line: i + 1,
+                        span_end,
                         full: full.map(|f| tidy(&collapse_ws(&f))),
                     });
+                    pushed = Some(out.len() - 1);
                 }
                 // A `const`/`static`/`var` whose body opens with `{` is a value
                 // block / initializer expression, not a type body — suppress any
@@ -250,7 +280,11 @@ impl Language for BraceLang {
                 pending = Some(true);
             }
             let tag = if term == Term::Brace { pending } else { None };
-            update_stack(&mut stack, &mlines[i..end], tag);
+            // `pushed` (if any) is the declaration just emitted; the tracked
+            // update associates it with the `{ … }` body level it opens (so its
+            // closing brace finalizes its span), or — for a same-line open+close
+            // or a body-less decl — finalizes its span to `end` immediately.
+            update_stack_tracked(&mut stack, &mut open, &mlines[i..end], tag, pushed, end, &mut out);
             // A C# 10 file-scoped namespace (`namespace Foo;`) has no `{` body but
             // its scope runs to end of file: push a (never-popped) type frame so
             // the types it contains are indented under it, matching the brace form.
@@ -259,8 +293,18 @@ impl Language for BraceLang {
                 && trimmed.starts_with("namespace ")
             {
                 stack.push(false);
+                open.push(None);
             }
             i += consumed;
+        }
+
+        // Finalize any still-open blocks at EOF (unclosed bodies): their spans
+        // run to the last source line.
+        let last = mlines.len();
+        for slot in &open {
+            if let Some(idx) = *slot {
+                out[idx].span_end = last;
+            }
         }
 
         out
@@ -374,16 +418,41 @@ fn ts_module_wrapper(core: &str) -> bool {
     }
 }
 
-/// Advance the block stack over `lines`, pushing on `{` and popping on `}`.
-/// When `body_tag` is `Some` and a net-new block was opened, tag that block.
-fn update_stack(stack: &mut Vec<bool>, lines: &[&str], body_tag: Option<bool>) {
+/// Advance the block stack over `lines`, pushing `false` on `{` and popping on
+/// `}`, while keeping `open` (parallel to `stack`) and each declaration's
+/// `span_end` up to date.
+///
+/// - When `body_tag` is `Some` and a net-new block was opened, tag that block.
+/// - When a `}` closes a level that an emitted declaration owns, that
+///   declaration's `span_end` is finalized to `end_line` (the 1-based source
+///   line of the LAST line in `lines` — i.e. the line carrying the closing
+///   brace, since closing braces are processed one line at a time).
+/// - `decl_idx` is the index of a declaration just emitted on this line: if it
+///   opened a `{ … }` body, its body level is associated with it (so a later
+///   `}` finalizes its span); for a same-line open+close or a body-less decl,
+///   its span is finalized to `end_line` immediately.
+fn update_stack_tracked(
+    stack: &mut Vec<bool>,
+    open: &mut Vec<Option<usize>>,
+    lines: &[&str],
+    body_tag: Option<bool>,
+    decl_idx: Option<usize>,
+    end_line: usize,
+    out: &mut [Signature],
+) {
     let before = stack.len();
     for line in lines {
         for c in line.chars() {
             match c {
-                '{' => stack.push(false),
+                '{' => {
+                    stack.push(false);
+                    open.push(None);
+                }
                 '}' => {
                     stack.pop();
+                    if let Some(Some(idx)) = open.pop() {
+                        out[idx].span_end = end_line;
+                    }
                 }
                 _ => {}
             }
@@ -394,6 +463,18 @@ fn update_stack(stack: &mut Vec<bool>, lines: &[&str], body_tag: Option<bool>) {
             if let Some(top) = stack.last_mut() {
                 *top = tag;
             }
+        }
+    }
+    if let Some(idx) = decl_idx {
+        if stack.len() > before {
+            // The declaration opened a body that is still open: its level is the
+            // first net-new one (index `before`). Its closing `}` will finalize
+            // the span.
+            open[before] = Some(idx);
+        } else {
+            // No surviving net-new level — a same-line `{ … }` body or a
+            // body-less declaration: its span ends on the last consumed line.
+            out[idx].span_end = end_line;
         }
     }
 }
@@ -469,7 +550,7 @@ fn go_group_block(
                         };
                         (Kind::Constant, text, full)
                     };
-                    out.push(Signature { indent, kind, text, line: k + 1, full });
+                    out.push(Signature { indent, kind, text, line: k + 1, span_end: k + 1, full });
                 }
             }
         }

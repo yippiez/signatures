@@ -24,9 +24,16 @@ impl Language for PythonLang {
         let olines: Vec<&str> = source.lines().collect();
         let (mlines, blines) = mask_all(&olines);
 
-        let mut out = Vec::new();
+        let mut out: Vec<Signature> = Vec::new();
         // Stack of (indent width, is_function_body) for enclosing declarations.
         let mut stack: Vec<(usize, bool)> = Vec::new();
+        // Index in `out` of the currently-open top-level (indent 0) declaration
+        // whose body we are still scanning, and the last non-blank source line
+        // (1-based) we have seen inside it. When a later line dedents back to
+        // column 0 (a new top-level construct/statement), we finalize its
+        // `span_end` to that last non-blank line.
+        let mut open_top: Option<usize> = None;
+        let mut last_nonblank: usize = 0;
         let mut i = 0;
 
         while i < olines.len() {
@@ -39,10 +46,33 @@ impl Language for PythonLang {
             let indent_width = leading_width(olines[i]);
             let line_no = i + 1;
 
+            // A line at column 0 closes any open top-level declaration's body
+            // (its `span_end` is the last non-blank line we saw inside it).
+            if indent_width == 0 {
+                if let Some(idx) = open_top.take() {
+                    out[idx].span_end = last_nonblank;
+                }
+            }
+            // Track the last non-blank source line seen (extends the open body).
+            last_nonblank = line_no;
+
             if let Some(kind) = def_kind(mstripped) {
                 let (text, consumed) = gather_def(&mlines, &olines, &blines, i);
                 let level = push_level(&mut stack, indent_width, kind == Kind::Function);
-                out.push(Signature { indent: level, kind, text, line: line_no, full: None });
+                // The multi-line header itself extends through `i + consumed - 1`.
+                let header_end = (i + consumed).min(olines.len());
+                last_nonblank = header_end; // 1-based last header line
+                out.push(Signature {
+                    indent: level,
+                    kind,
+                    text,
+                    line: line_no,
+                    span_end: header_end,
+                    full: None,
+                });
+                if level == 0 {
+                    open_top = Some(out.len() - 1);
+                }
                 i += consumed;
                 continue;
             }
@@ -61,6 +91,7 @@ impl Language for PythonLang {
                         kind: Kind::Constant,
                         text,
                         line: line_no,
+                        span_end: line_no,
                         full: None,
                     });
                 }
@@ -84,12 +115,19 @@ impl Language for PythonLang {
                         kind: Kind::Constant,
                         text,
                         line: line_no,
+                        span_end: line_no,
                         full,
                     });
                 }
             }
 
             i += 1;
+        }
+
+        // Finalize the trailing open top-level declaration (its body runs to the
+        // last non-blank source line).
+        if let Some(idx) = open_top.take() {
+            out[idx].span_end = last_nonblank;
         }
 
         out
