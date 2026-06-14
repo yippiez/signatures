@@ -204,6 +204,15 @@ impl Language for BraceLang {
             let end = (i + consumed).min(mlines.len());
             let tag = if term == Term::Brace { pending } else { None };
             update_stack(&mut stack, &mlines[i..end], tag);
+            // A C# 10 file-scoped namespace (`namespace Foo;`) has no `{` body but
+            // its scope runs to end of file: push a (never-popped) type frame so
+            // the types it contains are indented under it, matching the brace form.
+            if self.lang == Lang::CSharp
+                && term == Term::Semi
+                && trimmed.starts_with("namespace ")
+            {
+                stack.push(false);
+            }
             i += consumed;
         }
 
@@ -1452,6 +1461,11 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                 if next.starts_with('{') {
                     term = Term::Brace;
                 } else if next.starts_with(';') {
+                    term = Term::Semi;
+                } else if next.starts_with("=>") {
+                    // An expression-bodied member (`=>`) whose arrow starts the
+                    // continuation line (C# / Dart). The header above is complete;
+                    // treat the arrow line as the body and terminate the header.
                     term = Term::Semi;
                 }
             }

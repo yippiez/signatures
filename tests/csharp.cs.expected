@@ -187,13 +187,13 @@ class Calc
   public T Echo<T>(T value)
 @@CASE@@ sample
 namespace App
-public class Account
-  public const double Rate = …
-  public Account(string id)
-  public double Balance()
-public interface IGreeter
-  string Greet()
-public enum Status
+  public class Account
+    public const double Rate = …
+    public Account(string id)
+    public double Balance()
+  public interface IGreeter
+    string Greet()
+  public enum Status
 @@CASE@@ operator_overloads
 public struct S
   public static S operator +(S a, S b)
@@ -227,3 +227,11 @@ public class B
   public (int Count, string Name) GetStats()
   public (int, string) GetPair(int n)
   public void After()
+@@CASE@@ expr_body_arrow_next_line
+public class C
+  public int Foo(int x)
+  public void After()
+@@CASE@@ file_scoped_namespace
+namespace App
+  public class Foo
+    public void Method()

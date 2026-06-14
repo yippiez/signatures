@@ -783,3 +783,17 @@ public class B
 
     public void After() { }
 }
+@@CASE@@ expr_body_arrow_next_line
+public class C
+{
+    public int Foo(int x)
+        => x + 1;
+    public void After() { }
+}
+@@CASE@@ file_scoped_namespace
+namespace App;
+
+public class Foo
+{
+    public void Method() { }
+}
