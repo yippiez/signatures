@@ -75,9 +75,9 @@ impl Language for BraceLang {
     fn extract(&self, source: &str) -> Vec<Signature> {
         let (masked, display) = mask(source, self.lang);
         let mut mvec: Vec<String> = masked.lines().map(|s| s.to_string()).collect();
-        // Rust `extern "C" { … }` blocks are transparent: their `fn` items belong
-        // to the enclosing scope, so blank the block braces to hoist them.
-        if self.lang == Lang::Rust {
+        // Rust/C++ `extern "C" { … }` blocks are transparent: their `fn`/function
+        // items belong to the enclosing scope, so blank the block braces to hoist them.
+        if matches!(self.lang, Lang::Rust | Lang::Cpp) {
             neutralize_extern_blocks(&mut mvec);
         }
         let mlines: Vec<&str> = mvec.iter().map(|s| s.as_str()).collect();
@@ -1503,6 +1503,9 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
     let mut pieces: Vec<String> = Vec::new();
     let mut consumed = 0;
     let mut term = Term::None;
+    // C++ constructor member-initializer list: `Foo(int x)\n  : a_(x),\n  b_(x)\n{}`.
+    // Once the first `: member(` continuation is detected, keep gathering until `{`.
+    let mut cpp_ctor_init = false;
 
     let mut k = start;
     while k < mlines.len() {
@@ -1735,11 +1738,30 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
                     && !next.starts_with('{')
                     && !next.starts_with(';')
                     && !next.starts_with("//");
+                // C++ constructor member-initializer list:
+                //   `Foo(int x)`  ←  gathered so far, paren=0
+                //   `: a_(x),`   ←  next line starts with `:` — enter init-list
+                //   `b_(x)`      ←  continuation of init-list (cpp_ctor_init set)
+                //   `{}`         ←  body open — let the `next.starts_with('{')` arm
+                //                   below handle it as Term::Brace
+                // Detect entry: C++, no `=` seen, next starts with `:` followed
+                // by a word char (member name) or space, and we have already
+                // gathered at least one `(` (so we know we have a callable header).
+                if lang == Lang::Cpp
+                    && !seen_top_eq
+                    && next.starts_with(':')
+                    && !next.starts_with("::")
+                    && pieces.iter().any(|p| p.contains('('))
+                {
+                    cpp_ctor_init = true;
+                }
+                let cpp_ctor_init_cont = cpp_ctor_init && !next.starts_with('{') && !next.starts_with(';');
                 if matches!(last_word, "class" | "struct" | "enum" | "union")
                     || throws_cont
                     || where_comma_cont
                     || extends_cont
                     || c_const_cont
+                    || cpp_ctor_init_cont
                 {
                     // Account for any skipped blank lines, then resume gathering
                     // at line `p` (the `k += 1` below advances k from p-1 to p).
@@ -2841,7 +2863,16 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
                 };
                 plain_ctor || named_ctor
             };
-            (prefix_ok || dart_ctor) && (term == Term::Brace || term == Term::Semi || arrow_body || dart_ctor)
+            // C++ constructor with a member-initializer list: `Foo(int x)` is
+            // followed by `: member_(val)` on the next line, so `gather()` finds
+            // no `{` or `;` on the constructor line and returns `Term::None`.
+            // Accept `Term::None` for a C++ in-type-body name starting with
+            // uppercase (i.e. looks like a constructor name matching the class).
+            let cpp_ctor_no_term = lang == Lang::Cpp
+                && in_type_body
+                && term == Term::None
+                && name.chars().next().map_or(false, |c| c.is_uppercase());
+            (prefix_ok || dart_ctor) && (term == Term::Brace || term == Term::Semi || arrow_body || dart_ctor || cpp_ctor_no_term)
         }
         _ => false,
     }

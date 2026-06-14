@@ -919,3 +919,17 @@ class Bar {
     Bar() : x_(0) {}
     Bar(int x) : x_(x), y_(0) {}
 };
+@@CASE@@ ctor_multiline_init_list
+class Foo {
+    Foo(int x, int y)
+        : x_(x),
+          y_(y)
+    {}
+    void method() {}
+};
+@@CASE@@ extern_c_indent
+extern "C" {
+    int c_add(int a, int b);
+    void c_print(const char* s);
+}
+int after(void);

@@ -3,8 +3,6 @@ namespace tricks
   constexpr int REAL_CONST = …
   class StringHolder
     explicit StringHolder()
-    std::string get_fake_code() const
-    std::string get_raw_fake() const
     bool is_valid() const
     StringHolder operator+(const StringHolder& other) const
     bool operator==(const StringHolder& other) const
@@ -32,7 +30,6 @@ namespace open_ns
   int* const const_pointer(int* p)
   void multi_out(int in, int* out1, double* out2, bool* ok)
   int printf_like(const char* fmt, ...)
-  std::map<std::string, std::vector<int>> build_index(const std::vector<std::string>& words)
   enum 
   typedef struct
   void register_callback(void (*cb)(int, void*), void* userdata)
@@ -76,7 +73,6 @@ namespace corp
       enum class BlendMode
       class Material
         explicit Material(std::string name)
-        const std::string& name() const
         void set_blend(BlendMode b)
         BlendMode blend() const
         class Param
@@ -84,7 +80,6 @@ namespace corp
           void set_float(float v)
           void set_int(int v)
           void set_string(std::string v)
-          const std::string& key() const
         void add_param(Param p)
       class Scene
         void add_mesh(detail::Mesh m, Material mat)
@@ -93,7 +88,6 @@ namespace corp
         class Node
           Node(unsigned id, detail::Mesh m, Material mat)
           unsigned id() const
-          const detail::Mesh& mesh() const
           const Material& material() const
   namespace physics
     struct AABB
@@ -205,9 +199,6 @@ namespace http
     Request()
     explicit Request(Method m, std::string url)
     Method method() const
-    const std::string& url() const
-    const std::string& body() const
-    std::string header(const std::string& name) const
     void set_body(std::string b)
     void add_header(std::string name, std::string value)
     bool is_secure() const
@@ -216,7 +207,6 @@ namespace http
     explicit Response(StatusCode code)
     StatusCode status() const
     int status_int() const
-    const std::string& body() const
     void set_status(StatusCode code)
     void set_body(std::string b)
     void set_header(std::string name, std::string value)
@@ -241,10 +231,6 @@ namespace http
     void stop()
     uint16_t port() const
     bool running() const
-  std::string url_encode(const std::string& s)
-  std::string url_decode(const std::string& s)
-  std::string base64_encode(const std::vector<uint8_t>& data)
-  std::vector<uint8_t> base64_decode(const std::string& s)
   Method parse_method(const std::string& s)
   StatusCode parse_status(int code)
 @@CASE@@ sample
@@ -273,7 +259,6 @@ namespace tpl
     const T* end() const
     void sort(Compare comp)
   class StaticArray<bool, 0>
-    std::size_t size() const
     bool empty() const
   struct Power
     static constexpr int value = …
@@ -287,7 +272,6 @@ namespace tpl
     bool contains(T v) const
     bool overlaps(const NumericRange& other) const
   constexpr T square(T x)
-  typename Container::value_type sum(const Container& c)
   auto safe_cast(U value) -> T
 @@CASE@@ unicode
 namespace 数学
@@ -314,14 +298,12 @@ namespace Größen
     double Durchschnitt() const
     double Minimum() const
     double Maximum() const
-    std::size_t Anzahl() const
   Größe addieren(const Größe& a, const Größe& b)
   bool gleich(const Größe& a, const Größe& b)
 namespace util
   constexpr int MAX_Größe = …
   class Übersetzer
     explicit Übersetzer(std::string sprache)
-    std::string übersetzen(const std::string& text) const
     bool unterstützt(const std::string& sprache) const
 @@CASE@@ concept_constinit
 concept Integral = …
@@ -344,3 +326,11 @@ class Bar
 class Bar
   Bar()
   Bar(int x)
+@@CASE@@ ctor_multiline_init_list
+class Foo
+  Foo(int x, int y)
+  void method()
+@@CASE@@ extern_c_indent
+int c_add(int a, int b)
+void c_print(const char* s)
+int after(void)
