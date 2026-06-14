@@ -1739,6 +1739,12 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
                 }
                 if next.starts_with('{') {
                     term = Term::Brace;
+                    // Consume the skipped blank lines so that the `{` line is
+                    // included in the span passed to `update_stack_tracked`. This
+                    // ensures the class/struct declaration's opening brace is
+                    // properly associated with the header for full-mode spans and
+                    // stack tracking (multi-line `class A\n  extends B\n{`).
+                    consumed += p - k;
                 } else if next.starts_with(';') {
                     term = Term::Semi;
                     // Consume the blank lines we skipped plus the `;` line, so

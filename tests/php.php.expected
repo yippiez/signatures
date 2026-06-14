@@ -146,3 +146,6 @@ function g(): void
 @@CASE@@ attribute_inline_and_line
 class Api
   public function handle(#[Inject] string $svc, int $id): void
+@@CASE@@ multiline_extends_implements
+class A extends B
+  public function f(): void

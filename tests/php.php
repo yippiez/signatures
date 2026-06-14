@@ -661,3 +661,11 @@ function g(): void {}
 class Api {
     public function handle(#[Inject] string $svc, int $id): void {}
 }
+@@CASE@@ multiline_extends_implements
+// Bug: multiline class header with extends/implements dropped
+<?php
+class A
+    extends B
+{
+    public function f(): void {}
+}
