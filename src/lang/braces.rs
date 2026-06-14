@@ -1482,10 +1482,16 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                     // e.g. `chan<- T`); it would never balance and would swallow
                     // the rest of the file.
                     && mchars.get(j + 1) != Some(&'-')
-                    && piece
+                    && (piece
                         .chars()
                         .last()
-                        .map_or(false, |c| c == '_' || c == '$' || c == '>' || c.is_alphanumeric()) =>
+                        .map_or(false, |c| c == '_' || c == '$' || c == '>' || c.is_alphanumeric())
+                        // A leading type-parameter list after `fun`/`func`
+                        // (`fun <A, B> pair(...)` in Kotlin, `func <T>(...)` in
+                        // Swift): the `<` follows the keyword + a space, so the
+                        // previous char is whitespace. Accept it as a generic
+                        // opener so a multi-line type-param list keeps gathering.
+                        || matches!(piece.split_whitespace().last(), Some("fun") | Some("func"))) =>
                 {
                     angle += 1;
                     piece.push(och(j));
@@ -2116,8 +2122,14 @@ fn classify(
                         r = r[end..].trim_start();
                     }
                 }
-                let (n2, _) = take_ident(r);
-                if n2.is_empty() {
+                // A backtick-quoted name (`val \`my property\``) may contain
+                // spaces or reserved words; accept it as the identifier.
+                let has_name = if r.starts_with('`') {
+                    r[1..].contains('`')
+                } else {
+                    !take_ident(r).0.is_empty()
+                };
+                if !has_name {
                     return None;
                 }
                 // A property with no initializer (a custom getter follows on the

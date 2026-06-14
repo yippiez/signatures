@@ -638,3 +638,23 @@ class Foo(val x: Int) {
     fun bar(): Int = x
 }
 val <T> List<T>.head: T? get() = firstOrNull()
+@@CASE@@ fun_multiline_type_params
+fun <A,
+     B> pair(a: A, b: B): Pair<A, B> = Pair(a, b)
+val x = 1
+@@CASE@@ val_backtick_identifiers
+val `val` = 42
+val `interface` = "reserved"
+val `my property` = "hello"
+val normal = 99
+@@CASE@@ getter_body_locals_suppressed
+class C {
+    val p: Int get() {
+        var x = 1
+        return x
+    }
+    fun m(): Int {
+        var y = 2
+        return y
+    }
+}
