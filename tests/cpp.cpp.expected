@@ -331,3 +331,16 @@ int regular_fn(int x)
 @@CASE@@ alignas_member_not_function
 class Foo
   void real_method()
+@@CASE@@ std_attribute_paren_arg
+int fn1()
+int fn2()
+int fn3()
+@@CASE@@ class_name_on_next_line
+class Foo
+  int a()
+class Bar
+  int b()
+@@CASE@@ ctor_initializer_list
+class Bar
+  Bar()
+  Bar(int x)

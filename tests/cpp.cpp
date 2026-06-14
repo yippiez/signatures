@@ -901,3 +901,21 @@ private:
     alignas(16) float arr_[4];
     alignas(double) char buf_[8];
 };
+@@CASE@@ std_attribute_paren_arg
+[[a(b)]] int fn1();
+[[nodiscard("reason")]] int fn2();
+int fn3();
+@@CASE@@ class_name_on_next_line
+class Foo {
+    int a();
+};
+
+class
+Bar {
+    int b();
+};
+@@CASE@@ ctor_initializer_list
+class Bar {
+    Bar() : x_(0) {}
+    Bar(int x) : x_(x), y_(0) {}
+};

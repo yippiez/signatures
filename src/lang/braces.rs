@@ -593,6 +593,15 @@ fn mask(source: &str, lang: Lang) -> (String, String) {
             continue;
         }
 
+        // C++ standard `[[...]]` attribute (e.g. `[[nodiscard]]`,
+        // `[[deprecated("msg")]]`, `[[gnu::noinline(1)]]`). Blank it in the
+        // structural copy so a parenthesized attribute argument doesn't trip the
+        // callable detector (the display copy keeps the attribute text).
+        if lang == Lang::Cpp && c == '[' && chars.get(i + 1) == Some(&'[') {
+            i = mask_cpp_attribute(&chars, i, &mut out);
+            continue;
+        }
+
         // C++ raw string literals: R"(...)" / R"delim(...)delim" (with optional
         // L/u/U/u8 encoding prefix). Span newlines and ignore their contents.
         if lang == Lang::Cpp && c == 'R' && i + 1 < n && chars[i + 1] == '"' {
@@ -974,6 +983,26 @@ fn mask_gnu_attribute(chars: &[char], start: usize, out: &mut String) -> usize {
                 break;
             }
         }
+    }
+    i
+}
+
+/// Blank a C++ `[[ … ]]` standard attribute (balanced brackets, may span lines).
+/// Returns the index just past the closing `]]`.
+fn mask_cpp_attribute(chars: &[char], start: usize, out: &mut String) -> usize {
+    let n = chars.len();
+    out.push(' '); // [
+    out.push(' '); // [
+    let mut i = start + 2;
+    let mut depth: i32 = 2;
+    while i < n && depth > 0 {
+        match chars[i] {
+            '[' => depth += 1,
+            ']' => depth -= 1,
+            _ => {}
+        }
+        out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+        i += 1;
     }
     i
 }
@@ -1403,6 +1432,22 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                     }
                     consumed += q - k - 1; // header line already counted
                     break;
+                }
+                // A bare type keyword whose name is wrapped onto the next line
+                // (`class\nBar {`): the header is incomplete, so keep gathering
+                // instead of stopping with `Term::None` (which would drop the
+                // type and misattribute its body brace to the enclosing scope).
+                let last_word = pieces
+                    .last()
+                    .and_then(|p| p.split_whitespace().last())
+                    .unwrap_or("");
+                if matches!(last_word, "class" | "struct" | "enum" | "union") {
+                    // Account for any skipped blank lines, then resume gathering
+                    // at line `p` (the `k += 1` below advances k from p-1 to p).
+                    consumed += p - (k + 1);
+                    k = p - 1;
+                    k += 1;
+                    continue;
                 }
                 if next.starts_with('{') {
                     term = Term::Brace;
@@ -2627,6 +2672,35 @@ fn fn_text(h: &str) -> String {
     }
 }
 
+/// Index of the first top-level (paren/angle/bracket depth 0) single `:` in `h`
+/// that is not part of a `::` scope-resolution operator — i.e. the start of a
+/// C++ constructor initializer list. Returns `None` if there is none.
+fn find_top_colon(h: &str) -> Option<usize> {
+    let b = h.as_bytes();
+    let mut depth: i32 = 0;
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'(' | b'[' | b'<' | b'{' => depth += 1,
+            b')' | b']' | b'>' | b'}' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            b':' if depth == 0 => {
+                let prev = if i > 0 { b[i - 1] } else { b' ' };
+                let next = if i + 1 < b.len() { b[i + 1] } else { b' ' };
+                if prev != b':' && next != b':' {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// C++ function header text with any body specifier dropped. Like `fn_text` but
 /// only cuts at a top-level `=` that appears *after* the parameter list, so a
 /// copy/move-assignment `operator=` (whose `=` precedes the params) is preserved
@@ -2635,8 +2709,25 @@ fn cpp_fn_text(h: &str) -> String {
     if let Some(open) = h.find('(') {
         if let Some(rel_close) = matched_paren_end(&h[open..]) {
             let after = open + rel_close;
-            if let Some(eq_rel) = find_top_eq(&h[after..]) {
-                return h[..after + eq_rel].trim_end().to_string();
+            let tail = &h[after..];
+            // Cut at the first body specifier after the parameter list, whichever
+            // comes first:
+            //   * a `=` body suffix (`= default` / `= delete` / `= 0`, or a
+            //     Dart `=>` expression body), or
+            //   * a constructor initializer list `:` (`Foo() : x_(0), y_(1)`),
+            //     which precedes the `{` body and is part of the definition.
+            // Cutting at the *earliest* keeps a ternary `:` inside a `=>` body
+            // (which appears after the `=`) from being mistaken for an init list.
+            let colon = find_top_colon(tail);
+            let eq = find_top_eq(tail);
+            let cut = match (colon, eq) {
+                (Some(c), Some(e)) => Some(c.min(e)),
+                (Some(c), None) => Some(c),
+                (None, Some(e)) => Some(e),
+                (None, None) => None,
+            };
+            if let Some(rel) = cut {
+                return h[..after + rel].trim_end().to_string();
             }
             return h.trim().to_string();
         }
