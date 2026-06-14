@@ -102,12 +102,13 @@ impl Language for BashLang {
             // function body).
             if stack.is_empty() && depth == 0 {
                 if let Some((text, full)) = constant_sig(trimmed, originals.get(i).copied()) {
+                    let span_end = constant_span_end(&originals, i);
                     out.push(Signature {
                         indent: 0,
                         kind: Kind::Constant,
                         text,
                         line: line_no,
-                        span_end: line_no,
+                        span_end,
                         full,
                     });
                 }
@@ -452,6 +453,63 @@ fn gather_func(lines: &[String], start: usize) -> (String, usize) {
 }
 
 /// If a module-level statement is a constant assignment, return its normalized
+/// Scan forward from `start` (0-indexed) in the ORIGINAL source lines to find
+/// the last line of a bash constant assignment that may span multiple lines via
+/// backslash continuation (`NAME=\`) or unclosed quotes (`NAME="\n..."`).
+/// Returns 1-based line number of the last line belonging to the constant.
+fn constant_span_end(originals: &[&str], start: usize) -> usize {
+    let mut quote: Option<char> = None;
+    let mut k = start;
+    loop {
+        let line = match originals.get(k) {
+            Some(l) => *l,
+            None => break,
+        };
+        let cs: Vec<char> = line.chars().collect();
+        let n = cs.len();
+        let mut j = 0;
+        while j < n {
+            let c = cs[j];
+            if let Some(q) = quote {
+                if q == '\'' {
+                    if c == '\'' { quote = None; }
+                    j += 1;
+                } else {
+                    // double-quoted
+                    if c == '\\' && j + 1 < n {
+                        j += 2;
+                    } else if c == '"' {
+                        quote = None;
+                        j += 1;
+                    } else {
+                        j += 1;
+                    }
+                }
+                continue;
+            }
+            match c {
+                '\'' => { quote = Some('\''); j += 1; }
+                '"' => { quote = Some('"'); j += 1; }
+                '\\' if j + 1 == n => {
+                    // Line ends with backslash — continuation; advance but don't
+                    // count this as end-of-value yet.
+                    j += 1;
+                }
+                _ => { j += 1; }
+            }
+        }
+        let ends_with_backslash = cs.last() == Some(&'\\');
+        k += 1;
+        if !ends_with_backslash && quote.is_none() {
+            break;
+        }
+        if k >= originals.len() || k > start + 500 {
+            break;
+        }
+    }
+    k // 1-based (k is already one past the last consumed 0-indexed line)
+}
+
 /// signature (`NAME = …`) and the full (unelided) declaration text. Accepts an
 /// optional leading `readonly`/`declare`/`export`/`local`/`typeset` keyword (and
 /// `declare`-style `-flag` tokens), then requires an ALL-CAPS identifier

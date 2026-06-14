@@ -333,3 +333,12 @@ outer() (
 REAL="yes"
 arith_func() (( x = 1 + 2 ))
 real_func() { echo "real"; }
+@@CASE@@ multiline_constant_span
+SQL=\
+  "SELECT * FROM t\
+   WHERE id = 1"
+GREETING="Hello,\
+ World"
+function after() {
+  echo "after"
+}
