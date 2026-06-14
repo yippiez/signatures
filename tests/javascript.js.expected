@@ -23,10 +23,8 @@ class ExtendedArray extends Array
   first()
   last()
   groupBy(keyFn)
-      const key = …
 function* fibonacci()
 export function parseArgs(argv = process.argv.slice(2))
-      const [key, val = true] = …
 @@CASE@@ malformed
 const WEIRD_SPACING = …
 const TRAILING = …
@@ -53,12 +51,10 @@ export class AsyncQueue
   get isEmpty()
   set capacity(n)
   enqueue(item)
-      const resolve = …
   async dequeue()
   async *[Symbol.asyncIterator]()
 export async function fetchAll(urls)
 export async function* streamLines(reader)
-    const lines = …
 export function* range(start, end, step = 1)
 export function* zip(...iterables)
   const iterators = iterables.map(it => it[Symbol.iterator]())
@@ -79,8 +75,6 @@ class Outer
   static create(value)
 function pipeline(...fns)
 const memoize = (fn) =>
-    const key = …
-    const result = …
 function makeAdder(x)
 class EventBus
   constructor()
@@ -106,7 +100,6 @@ export class HttpClient extends EventEmitter
   async put(path, body)
   async delete(path)
   async _request(method, path, body, params)
-        const res = …
 export function createClient(baseUrl, options)
 @@CASE@@ sample
 const MAX = …
