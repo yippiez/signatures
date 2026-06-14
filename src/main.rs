@@ -91,13 +91,14 @@ fn run(cfg: cli::Config) -> i32 {
                 // per block, with one blank line between consecutive plain blocks.
                 let lines: Vec<&str> = source.lines().collect();
                 let emit = render::full_mode_emit(&sigs);
+                let lk = render::full_line_kinds(&sigs);
                 let mut first_block = true;
                 for (s, &keep) in sigs.iter().zip(emit.iter()) {
                     if !keep {
                         continue;
                     }
                     if let Some(block) =
-                        render::render_one_full(&path, s, &lines, cfg.format)
+                        render::render_one_full(&path, s, &lines, cfg.format, &colors, &lk)
                     {
                         let mut chunk = String::new();
                         if plain && !first_block {
