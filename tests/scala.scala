@@ -582,3 +582,47 @@ class Ord {
   private[this] val secret: Int = 1
   protected[pkg] def helper(): Int = 2
 }
+@@CASE@@ val_function_type_annotation
+// Bug: function-type annotation in val truncated at =>
+object Funcs {
+  val f1: String => Int = _.length
+  val f2: (Int, Int) => Boolean = _ < _
+  val f3: Int => String = _.toString
+}
+@@CASE@@ abstract_val
+// Bug: abstract val shown with = … despite having no initializer
+trait Abs {
+  val x: Int
+  val y: String
+  def z: Boolean
+}
+@@CASE@@ backtick_quoted_val
+// Bug: backtick-quoted keyword val declarations silently dropped
+class Bt {
+  val `class`: String = "x"
+  val `val`: Int = 1
+  val normal: Int = 2
+}
+@@CASE@@ opaque_type
+// Bug: opaque type declarations silently dropped
+object O {
+  opaque type Meters = Double
+  opaque type Kilograms <: Double = Double
+  type Normal = Int
+}
+@@CASE@@ transparent_modifier
+// Bug: transparent modifier causes def to be dropped
+class C {
+  transparent inline def f(): Int = 1
+  transparent def g(): Int = 2
+  inline def h(): Int = 3
+  def i(): Int = 4
+}
+@@CASE@@ multiline_extends_with
+// Bug: multi-line extends/with continuation lines dropped
+class MyClass
+  extends Base
+  with Mixin1
+  with Mixin2 {
+  def method(): Int = 42
+}

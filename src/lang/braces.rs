@@ -1708,9 +1708,19 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
                     && pieces.iter().any(|p| {
                         p.split_whitespace().any(|w| w == "where")
                     });
+                // Scala / PHP class headers may have `extends`/`with`/
+                // `implements` continuation lines (multi-line inheritance clause).
+                let extends_cont = matches!(lang, Lang::Scala | Lang::Php | Lang::Dart)
+                    && (next == "extends"
+                        || next.starts_with("extends ")
+                        || next == "with"
+                        || next.starts_with("with ")
+                        || next == "implements"
+                        || next.starts_with("implements "));
                 if matches!(last_word, "class" | "struct" | "enum" | "union")
                     || throws_cont
                     || where_comma_cont
+                    || extends_cont
                 {
                     // Account for any skipped blank lines, then resume gathering
                     // at line `p` (the `k += 1` below advances k from p-1 to p).
@@ -2280,11 +2290,25 @@ fn classify(
                 return Some((Kind::Function, scala_def_text(h), None));
             }
             if matches!(kw, "val" | "var") {
-                let (n2, _) = take_ident(rest.trim_start());
-                if n2.is_empty() {
+                let r = rest.trim_start();
+                // Accept a backtick-quoted identifier (`val \`class\`: T = …`).
+                let has_name = if r.starts_with('`') {
+                    r[1..].contains('`')
+                } else {
+                    !take_ident(r).0.is_empty()
+                };
+                if !has_name {
                     return None;
                 }
-                return Some((Kind::Constant, const_text(h), const_full(h)));
+                // Use find_top_eq_scala so `=>` in type annotations
+                // (e.g. `val f: String => Int = _.length`) is not mistaken
+                // for the initializer `=`.
+                if find_top_eq_scala(h).is_none() {
+                    // Abstract val/var (no initializer): return verbatim,
+                    // no ` = …` fabricated.
+                    return Some((Kind::Constant, h.trim().to_string(), None));
+                }
+                return Some((Kind::Constant, scala_const_text(h), scala_const_full(h)));
             }
         }
         Lang::Php => {
@@ -2365,6 +2389,26 @@ fn scala_def_text(h: &str) -> String {
         h[..eq].trim_end().to_string()
     } else {
         h.trim().to_string()
+    }
+}
+
+/// Scala constant text: elide the initializer using [`find_top_eq_scala`] so
+/// that `=>` in the type annotation (`val f: String => Int = _.length`) is
+/// correctly identified as a function-type arrow, not the initializer `=`.
+fn scala_const_text(h: &str) -> String {
+    if let Some(eq) = find_top_eq_scala(h) {
+        format!("{} = …", h[..eq].trim_end().trim())
+    } else {
+        h.trim().to_string()
+    }
+}
+
+/// Full (non-elided) text for a Scala constant, using [`find_top_eq_scala`].
+fn scala_const_full(h: &str) -> Option<String> {
+    if find_top_eq_scala(h).is_some() {
+        Some(collapse_ws(h.trim()))
+    } else {
+        None
     }
 }
 
@@ -2891,7 +2935,8 @@ fn is_modifier(w: &str, lang: Lang) -> bool {
         ),
         Lang::Scala => matches!(
             w,
-            "case" | "sealed" | "implicit" | "lazy" | "final"
+            "case" | "sealed" | "implicit" | "lazy" | "final" | "opaque" | "transparent"
+                | "open" | "infix" | "erased"
         ),
         Lang::Php => matches!(w, "final" | "readonly"),
         Lang::Ts => matches!(w, "declare" | "readonly"),

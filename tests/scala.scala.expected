@@ -63,6 +63,8 @@ class Malformed
   def weirdSpacing (x : Int) : String
   def +(other: Malformed)
   def unary_-
+  val `backtick name`: Int = …
+  val `class`: String = …
 @@CASE@@ generics
 trait Functor[F[_]]
   def map[A, B](fa: F[A])(f: A => B): F[B]
@@ -269,3 +271,32 @@ class Ord
   def lostMethod(): String
   private[this] val secret: Int = …
   protected[pkg] def helper(): Int
+@@CASE@@ val_function_type_annotation
+object Funcs
+  val f1: String => Int = …
+  val f2: (Int, Int) => Boolean = …
+  val f3: Int => String = …
+@@CASE@@ abstract_val
+trait Abs
+  val x: Int
+  val y: String
+  def z: Boolean
+@@CASE@@ backtick_quoted_val
+class Bt
+  val `class`: String = …
+  val `val`: Int = …
+  val normal: Int = …
+@@CASE@@ opaque_type
+object O
+  opaque type Meters = Double
+  opaque type Kilograms <: Double = Double
+  type Normal = Int
+@@CASE@@ transparent_modifier
+class C
+  transparent inline def f(): Int
+  transparent def g(): Int
+  inline def h(): Int
+  def i(): Int
+@@CASE@@ multiline_extends_with
+class MyClass extends Base with Mixin1 with Mixin2
+  def method(): Int
