@@ -200,6 +200,14 @@ impl Language for BraceLang {
                 {
                     tag = Some(true);
                 }
+                // If we are already inside a function body (stack top is `true`,
+                // meaning declarations are suppressed) any nested block that is
+                // not tagged should inherit that suppression so locals inside
+                // nested control-flow blocks (`if (b) { final x = …; }`) don't
+                // leak as declarations.
+                if tag.is_none() && stack.last().copied() == Some(true) {
+                    tag = Some(true);
+                }
                 update_stack_tracked(
                     &mut stack,
                     &mut open,
@@ -1733,6 +1741,11 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize, lang: Lang) -> (String
                     term = Term::Brace;
                 } else if next.starts_with(';') {
                     term = Term::Semi;
+                    // Consume the blank lines we skipped plus the `;` line, so
+                    // that span_end covers the full declaration (e.g. the closing
+                    // `"""` of a multi-line string constant becomes part of the
+                    // source span for --output full).
+                    consumed += p - k;
                 } else if next.starts_with("=>") {
                     // An expression-bodied member (`=>`) whose arrow starts the
                     // continuation line (C# / Dart). The header above is complete;
@@ -1986,7 +1999,17 @@ fn prefilter(t: &str, lang: Lang) -> bool {
         lang,
         Lang::C | Lang::Cpp | Lang::CSharp | Lang::Java | Lang::Js | Lang::Ts | Lang::Dart
     ) {
-        if let Some(idx) = t.find('(') {
+        // Dart 3 record/tuple return type: `(T1, T2) name(params)`. The first
+        // `(` opens the return-type tuple (not the parameter list), giving an
+        // empty head and an empty name. Re-locate the parameter-list `(` by
+        // finding the closing `)` of the return tuple and searching from there.
+        let search_start = if lang == Lang::Dart && t.starts_with('(') {
+            matched_paren_end(t).unwrap_or(0)
+        } else {
+            0
+        };
+        if let Some(rel) = t[search_start..].find('(') {
+            let idx = search_start + rel;
             let head = callable_head(&t[..idx]);
             let name = trailing_ident(head);
             if !name.is_empty() {
@@ -2529,13 +2552,27 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         }
     }
 
-    // C# value-tuple return type `(T1, T2) Name(params)`: the *first* `(` opens
-    // the return tuple, not the parameter list. Re-locate the parameter `(` (the
-    // one preceded by the method name) so `Name`/prefix are read correctly.
+    // C# / Dart value-tuple return type `(T1, T2) Name(params)`: the *first*
+    // `(` opens the return tuple, not the parameter list. Re-locate the
+    // parameter `(` (the one preceded by the method name) so `Name`/prefix
+    // are read correctly.
     let head = if lang == Lang::CSharp {
         match csharp_method_paren(h) {
             Some(i) if i != idx => callable_head(h[..i].trim_end()),
             _ => head,
+        }
+    } else if lang == Lang::Dart && h.trim_start().starts_with('(') {
+        // Skip the record return-type tuple to find the real parameter `(`.
+        let trimmed = h.trim_start();
+        match matched_paren_end(trimmed) {
+            Some(after_tuple) => {
+                let rest = &trimmed[after_tuple..];
+                match rest.find('(') {
+                    Some(rel) => callable_head(trimmed[..after_tuple + rel].trim_end()),
+                    None => head,
+                }
+            }
+            None => head,
         }
     } else {
         head
@@ -2576,8 +2613,22 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
         }
     }
     // Member access (`obj.method(`) is a call expression, not a declaration.
+    // Exception: Dart named constructors (`ClassName.constructorName(params)`)
+    // are valid declarations even though their prefix ends with `.`. We allow
+    // them when the prefix before `.` is an identifier starting with an
+    // uppercase letter (a type/class name) and we are in a type body.
     if prefix.ends_with('.') {
-        return false;
+        let is_dart_named_ctor = lang == Lang::Dart && in_type_body && {
+            let before_dot = prefix.trim_end_matches('.').trim();
+            // Accept only if the part before `.` looks like a class name
+            // (starts with uppercase, alphanumeric/underscore only).
+            !before_dot.is_empty()
+                && before_dot.chars().next().map_or(false, |c| c.is_uppercase())
+                && before_dot.chars().all(|c| c.is_alphanumeric() || c == '_')
+        };
+        if !is_dart_named_ctor {
+            return false;
+        }
     }
     // A statement like `return foo()` / `await bar()` is a call, not a decl.
     if is_control(prefix.split_whitespace().next().unwrap_or("")) {
@@ -2605,10 +2656,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
                     bracket -= 1;
                 }
             }
-            // C# value-tuple return type carries balanced parens in the prefix
-            // (`(int, string) GetPair`); track them instead of rejecting.
-            '(' if lang == Lang::CSharp => paren += 1,
-            ')' if lang == Lang::CSharp => {
+            // C# / Dart value-tuple / record return type carries balanced
+            // parens in the prefix (`(int, string) GetPair` / `(int, int) m`);
+            // track them instead of rejecting.
+            '(' if matches!(lang, Lang::CSharp | Lang::Dart) => paren += 1,
+            ')' if matches!(lang, Lang::CSharp | Lang::Dart) => {
                 if paren > 0 {
                     paren -= 1;
                 }
@@ -2619,6 +2671,11 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
                 return false
             }
             '=' | '(' | ')' | '{' | '}' | ';' | '@' if angle == 0 => return false,
+            // A leading `:` in the prefix (Dart/C++ constructor initializer
+            // list `Foo() : member_(x), …`) is not a declaration.
+            ':' if angle == 0 && paren == 0 && matches!(lang, Lang::Dart | Lang::Cpp) => {
+                return false
+            }
             _ => {}
         }
     }
@@ -2646,7 +2703,24 @@ fn looks_like_function(h: &str, lang: Lang, term: Term, in_type_body: bool) -> b
             // is on the next line gathers with `Term::None`; accept the trailing
             // `=>` as a valid (arrow-body) terminator.
             let arrow_body = lang == Lang::CSharp && h.trim_end().ends_with("=>");
-            prefix_ok && (term == Term::Brace || term == Term::Semi || arrow_body)
+            // Dart constructors: plain `ClassName(params)` has an empty prefix
+            // and the name starts with uppercase (matches the class name). Named
+            // constructors `ClassName.named(params)` have a non-empty prefix
+            // ending with `.` where the part before `.` starts with uppercase.
+            // In both cases, accept them inside a type body with any terminator
+            // (including `Term::None` when followed by a `: this()` redirector).
+            let dart_ctor = lang == Lang::Dart && in_type_body && {
+                let plain_ctor = prefix.is_empty()
+                    && name.chars().next().map_or(false, |c| c.is_uppercase());
+                let named_ctor = prefix.ends_with('.') && {
+                    let before_dot = prefix.trim_end_matches('.').trim();
+                    !before_dot.is_empty()
+                        && before_dot.chars().next().map_or(false, |c| c.is_uppercase())
+                        && before_dot.chars().all(|c| c.is_alphanumeric() || c == '_')
+                };
+                plain_ctor || named_ctor
+            };
+            (prefix_ok || dart_ctor) && (term == Term::Brace || term == Term::Semi || arrow_body || dart_ctor)
         }
         _ => false,
     }

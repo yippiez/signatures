@@ -54,6 +54,7 @@ abstract mixin class Disposable
 const String kAppName = …
 class Documented
   final int id = …
+  Documented(this.id)
   String label()
   void realMethod()
 const String raw1 = …
@@ -108,6 +109,7 @@ extension ListX<T> on List<T>
   List<T> separated(T separator)
 class Dangling
   final int x = …
+  Dangling(this.x)
   int doubled()
 @@CASE@@ expression_bodies
 class Calc
@@ -130,6 +132,7 @@ class Triple<A, B, C> extends Pair<A, B>
 class BoundedStack<T>
   final int capacity = …
   final List<T> _data = …
+  BoundedStack({this.capacity = 32})
   bool push(T item)
   T? pop()
   T? peek()
@@ -139,12 +142,14 @@ class BoundedStack<T>
 class LruCache<K, V>
   final int maxSize = …
   final LinkedHashMap<K, V> _map = …
+  LruCache(this.maxSize)
   V? get(K key)
   void put(K key, V value)
   bool containsKey(K key)
   int get length
 class TreeNode<T>
   final T value = …
+  TreeNode(this.value, {this.left, this.right})
   bool get isLeaf
   int get height
 T identity<T>(T value)
@@ -162,6 +167,7 @@ abstract class Repository<T, ID extends Comparable<ID>>
 class InMemoryRepository<T, ID extends Comparable<ID>> implements Repository<T, ID>
   final ID Function(T) idOf = …
   final Map<ID, T> _store = …
+  InMemoryRepository({required this.idOf})
   Future<T?> findById(ID id) async
   Future<List<T>> findAll({int limit = 100, int offset = 0}) async
   Future<T> save(T entity) async
@@ -172,12 +178,14 @@ const int kVersion = …
 class Outer
   static const String tag = …
   final int id = …
+  Outer(this.id)
   int get value
   void process()
   String describe(String label, {bool verbose = false})
   class Inner
     static const String tag = …
     final Outer parent = …
+    Inner(this.parent)
     int compute(int x, int y)
     void reset()
     class DeepNested
@@ -186,10 +194,12 @@ class Outer
       bool isValid()
   class Sibling
     final double weight = …
+    Sibling(this.weight)
     double scale(double factor)
 class Container<T extends Comparable<T>>
   final List<T> _items = …
   static const int defaultCapacity = …
+  Container()
   void add(T item)
   T? find(bool Function(T) predicate)
   int get length
@@ -197,6 +207,7 @@ class Container<T extends Comparable<T>>
   class View<U>
     final Container<T> source = …
     final U Function(T) transform = …
+    View({required this.source, required this.transform})
     List<U> toList()
 void topLevel(int a, int b)
 @@CASE@@ realworld
@@ -214,11 +225,13 @@ class User
   final int id = …
   final String name = …
   final String email = …
+  User({required this.id, required this.name, required this.email, this.lastLogin})
   Map<String, dynamic> toJson()
 class ApiClient
   final http.Client _inner = …
   final Duration timeout = …
   static const int maxRetries = …
+  ApiClient({http.Client? client, this.timeout = const Duration(seconds: kDefaultTimeout)})
   Future<Map<String, dynamic>> get(String path, {Map<String, String>? headers}) async
   Future<Map<String, dynamic>> post(String path, {required Map<String, dynamic> body}) async
   Map<String, dynamic> _parseResponse(http.Response response)
@@ -226,6 +239,7 @@ class ApiClient
 class UserRepository
   final ApiClient _client = …
   final Map<int, User> _cache = …
+  UserRepository(this._client)
   Future<User> fetchUser(int id) async
   Future<List<User>> fetchAll({int page = 1, int perPage = 20}) async
   Future<User> updateUser(int id, {String? name, String? email}) async
@@ -241,6 +255,7 @@ const int max = …
 final String name = …
 class Greeter
   final String name = …
+  Greeter(this.name)
   String greet()
   Future<void> load() async
 abstract class Shape
@@ -305,3 +320,14 @@ class A
   dynamic operator [](String key)
   void operator []=(String key, dynamic value)
 String? lookup(String key)
+@@CASE@@ record_return_type
+(int, String) topLevel()
+class Foo
+  (int, int) method()
+  String other()
+@@CASE@@ local_vars_no_leak
+void gen()
+@@CASE@@ redirecting_constructor
+class Foo
+  Foo.named()
+  Foo()

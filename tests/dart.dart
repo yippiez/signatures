@@ -878,3 +878,26 @@ class A {
 String? lookup(String key) {
   return null;
 }
+@@CASE@@ record_return_type
+// Bug: functions with record/tuple return types were silently dropped
+(int, String) topLevel() => (1, 'hi');
+
+class Foo {
+  (int, int) method() => (1, 2);
+  String other() => 'ok';
+}
+@@CASE@@ local_vars_no_leak
+// Bug: local variables at depth >=2 leaked as constants
+void gen() {
+  if (true) {
+    final next = 1;
+    var other = 2;
+  }
+}
+@@CASE@@ redirecting_constructor
+// Bug: redirecting constructor emitted spurious : this() entry
+class Foo {
+  Foo.named()
+      : this();
+  Foo();
+}
