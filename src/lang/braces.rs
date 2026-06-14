@@ -173,6 +173,17 @@ impl Language for BraceLang {
                 {
                     tag = Some(true);
                 }
+                // A Java enum constant with a per-member class body
+                // (`PLUS { ... }`) is a bare identifier (optionally with an
+                // argument list) that opens a `{` body inside a type. Its
+                // override methods are not enum members, so suppress them.
+                if tag.is_none()
+                    && self.lang == Lang::Java
+                    && line_opens_brace(trimmed)
+                    && is_enum_constant_body(trimmed)
+                {
+                    tag = Some(true);
+                }
                 update_stack(&mut stack, &mlines[i..=i], tag);
                 i += 1;
                 continue;
@@ -209,7 +220,12 @@ impl Language for BraceLang {
                 // A `const`/`static`/`var` whose body opens with `{` is a value
                 // block / initializer expression, not a type body — suppress any
                 // nested declarations the same way a function body is suppressed.
-                pending = Some(if kind == Kind::Constant { true } else { kind == Kind::Function });
+                // A locally-scoped declaration that was itself suppressed (e.g. a
+                // Java local/anonymous class inside a method body) must likewise
+                // suppress its own members so they don't leak as API.
+                pending = Some(
+                    suppress || kind == Kind::Constant || kind == Kind::Function,
+                );
             }
 
             let consumed = consumed.max(1);
@@ -220,6 +236,17 @@ impl Language for BraceLang {
             // field), not a type body — suppress its nested declarations even
             // when the field itself was not emitted (`pending` is None).
             if pending.is_none() && term == Term::Brace && find_top_eq(&header).is_some() {
+                pending = Some(true);
+            }
+            // A Java enum constant with arguments and a class body
+            // (`RED(255) { ... }`) gathers as a header that was not classified
+            // (empty return-type prefix). Suppress its body so the override
+            // methods inside are not emitted as enum members.
+            if pending.is_none()
+                && self.lang == Lang::Java
+                && term == Term::Brace
+                && is_enum_constant_body(&header)
+            {
                 pending = Some(true);
             }
             let tag = if term == Term::Brace { pending } else { None };
@@ -330,7 +357,7 @@ fn is_macro_invocation_opener(t: &str) -> bool {
 /// details, not API. JavaScript intentionally shows nested functions/classes, so
 /// it is excluded.
 fn suppress_locals_in_fn_body(lang: Lang) -> bool {
-    matches!(lang, Lang::Rust | Lang::Ts)
+    matches!(lang, Lang::Rust | Lang::Ts | Lang::Java)
 }
 
 /// Is `core` (a masked, left-trimmed Ts line, modifiers stripped) a `module` /
@@ -1571,7 +1598,11 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
                     .last()
                     .and_then(|p| p.split_whitespace().last())
                     .unwrap_or("");
-                if matches!(last_word, "class" | "struct" | "enum" | "union") {
+                // A Java `throws` clause wrapped onto the next line continues the
+                // method header (`void m()\n  throws IOException {`) — resume
+                // gathering so the clause is joined and the body brace is found.
+                let throws_cont = next == "throws" || next.starts_with("throws ");
+                if matches!(last_word, "class" | "struct" | "enum" | "union") || throws_cont {
                     // Account for any skipped blank lines, then resume gathering
                     // at line `p` (the `k += 1` below advances k from p-1 to p).
                     consumed += p - (k + 1);
@@ -1599,6 +1630,30 @@ fn gather(mlines: &[&str], olines: &[&str], start: usize) -> (String, usize, Ter
     }
 
     (collapse_ws(&join_pieces(&pieces)), consumed, term)
+}
+
+/// Does this (already-masked) line look like a Java enum constant with a class
+/// body: a single identifier, optionally followed by a parenthesized argument
+/// list, then a `{` body opener — e.g. `PLUS {`, `RGB(255, 0, 0) {`. There is no
+/// type prefix, no `=`, and no second identifier (which would make it a field or
+/// method declaration).
+fn is_enum_constant_body(line: &str) -> bool {
+    let t = line.trim_start();
+    let (name, rest) = take_ident(t);
+    if name.is_empty() || is_control(name) {
+        return false;
+    }
+    let mut r = rest.trim_start();
+    // Optional argument list `(...)`.
+    if r.starts_with('(') {
+        match matched_paren_end(r) {
+            Some(e) => r = r[e..].trim_start(),
+            None => return false,
+        }
+    }
+    // Either the `{` body opener (on the raw line) or nothing left (the gathered
+    // header form, where `gather` already stripped the `{`).
+    r.starts_with('{') || r.is_empty()
 }
 
 /// Does this (already-masked) line leave a `{` open — i.e. more `{` than `}`?

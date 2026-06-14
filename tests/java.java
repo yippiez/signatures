@@ -496,3 +496,36 @@ public class Factory {
     String[] more() default {"one", "two"};
     int level() default 3;
 }
+@@CASE@@ multiline_throws_clause
+public class BugTest {
+    public void missingMethod()
+        throws IOException {
+    }
+
+    public void presentMethod() throws IOException {}
+}
+@@CASE@@ anonymous_class_in_method_body
+public class Outer {
+    public void method() {
+        Runnable r = new Runnable() {
+            public void run() {}
+        };
+    }
+    public void realMethod() {}
+}
+@@CASE@@ local_class_in_method_body
+public class Outer {
+    public void method() {
+        class Inner {
+            void help() {}
+        }
+    }
+    public void realMethod() {}
+}
+@@CASE@@ enum_constant_class_body
+enum Op {
+    PLUS {
+        public int apply(int x, int y) { return x + y; }
+    };
+    public abstract int apply(int x, int y);
+}
